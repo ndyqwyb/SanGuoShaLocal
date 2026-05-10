@@ -185,6 +185,10 @@ class Game:
         pending = actor.judgment_area[:]
         actor.judgment_area.clear()
         for delayed in pending:
+            if self._is_trick_countered(self.other_player(actor), actor, delayed):
+                self.output(f"[结算] {actor.name} 判定区的【{delayed.name}】被无懈可击抵消。")
+                self.discard(delayed)
+                continue
             judge = self.draw_judge_card()
             if judge is None:
                 self.discard(delayed)
@@ -615,23 +619,14 @@ class Game:
         return best
 
     def _effect_delayed_indulgence(self, actor: Player, target: Player, card: Card, __: CardDefinition) -> ActionResult:
-        if self._is_trick_countered(actor, target, card):
-            self.discard(card)
-            return ActionResult(True, f"{actor.name} 的【{card.name}】被无懈可击抵消。")
         self._place_delayed(target, card)
         return ActionResult(True, f"{actor.name} 对 {target.name} 使用【乐不思蜀】。")
 
     def _effect_delayed_supply_shortage(self, actor: Player, target: Player, card: Card, __: CardDefinition) -> ActionResult:
-        if self._is_trick_countered(actor, target, card):
-            self.discard(card)
-            return ActionResult(True, f"{actor.name} 的【{card.name}】被无懈可击抵消。")
         self._place_delayed(target, card)
         return ActionResult(True, f"{actor.name} 对 {target.name} 使用【兵粮寸断】。")
 
     def _effect_delayed_lightning(self, actor: Player, __: Player, card: Card, ___: CardDefinition) -> ActionResult:
-        if self._is_trick_countered(actor, actor, card):
-            self.discard(card)
-            return ActionResult(True, f"{actor.name} 的【{card.name}】被无懈可击抵消。")
         self._place_delayed(actor, card)
         return ActionResult(True, f"{actor.name} 使用【闪电】。")
 
