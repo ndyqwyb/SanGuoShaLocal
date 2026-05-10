@@ -49,20 +49,12 @@ def run_gui() -> None:
             self._skip_btn: Any | None = None
             self._self_box: Any | None = None
             self._enemy_box: Any | None = None
-            self._response_bar: Any | None = None
-            self._response_label_var = StringVar(value="")
-            self._response_yes_btn: Any | None = None
-            self._response_no_btn: Any | None = None
-            self._skill_target_frame: Any | None = None
-            self._skill_target_self_btn: Any | None = None
-            self._skill_target_enemy_btn: Any | None = None
             self._active_skill_buttons: list[Any] = []
             self._passive_skill_var = StringVar(value="无")
             self._active_skill_desc_var = StringVar(value="")
-            self._area_frame: Any | None = None
-            self._area_buttons: dict[str, Any] = {}
-            self._harvest_frame: Any | None = None
-            self._harvest_buttons: list[Any] = []
+            self._active_modal: Any | None = None
+            self._active_modal_kind: str | None = None
+            self._active_modal_prompt: str | None = None
 
             self.pages: dict[str, Any] = {
                 "start": self._build_start_page(self._frame),
@@ -173,61 +165,8 @@ def run_gui() -> None:
             page.grid_rowconfigure(5, weight=1)
             self._log_widget = log_widget
 
-            response_bar = ttk.Frame(page)
-            response_bar.grid(row=6, column=0, sticky="ew", pady=(10, 0))
-            response_bar.grid_columnconfigure(0, weight=1)
-            ttk.Label(response_bar, textvariable=self._response_label_var, foreground="#8a6d3b").grid(
-                row=0, column=0, sticky="w"
-            )
-            yes_btn = ttk.Button(response_bar, text="是 (y)", command=lambda: self._submit_response("y"))
-            yes_btn.grid(row=0, column=1, padx=(8, 0))
-            no_btn = ttk.Button(response_bar, text="否 (n)", command=lambda: self._submit_response("n"))
-            no_btn.grid(row=0, column=2, padx=(8, 0))
-            self._response_bar = response_bar
-            self._response_yes_btn = yes_btn
-            self._response_no_btn = no_btn
-
-            skill_target_frame = ttk.Frame(page)
-            skill_target_frame.grid(row=7, column=0, sticky="ew", pady=(8, 0))
-            skill_target_frame.grid_columnconfigure(0, weight=1)
-            ttk.Label(skill_target_frame, text="青囊目标：").grid(row=0, column=0, sticky="w")
-            self_btn = ttk.Button(skill_target_frame, text="自己[0]", command=lambda: self._submit_skill_target("0"))
-            self_btn.grid(row=0, column=1, padx=(8, 0))
-            enemy_btn = ttk.Button(skill_target_frame, text="对方[1]", command=lambda: self._submit_skill_target("1"))
-            enemy_btn.grid(row=0, column=2, padx=(8, 0))
-            self_btn.configure(state="disabled")
-            enemy_btn.configure(state="disabled")
-            self._skill_target_frame = skill_target_frame
-            self._skill_target_self_btn = self_btn
-            self._skill_target_enemy_btn = enemy_btn
-
-            area_frame = ttk.Frame(page)
-            area_frame.grid(row=8, column=0, sticky="ew", pady=(8, 0))
-            area_frame.grid_columnconfigure(0, weight=1)
-            self._area_frame = area_frame
-            ttk.Label(area_frame, text="区域选择：").grid(row=0, column=0, sticky="w")
-            area_codes = [("h", "手牌"), ("w", "武器"), ("a", "防具"), ("p", "+1马"), ("m", "-1马"), ("j", "判定区")]
-            self._area_buttons = {}
-            for idx, (code, text) in enumerate(area_codes):
-                btn = ttk.Button(area_frame, text=text, command=lambda c=code: self._submit_area(c))
-                btn.grid(row=0, column=idx + 1, padx=(6, 0))
-                btn.configure(state="disabled")
-                self._area_buttons[code] = btn
-
-            harvest_frame = ttk.Frame(page)
-            harvest_frame.grid(row=9, column=0, sticky="ew", pady=(8, 0))
-            harvest_frame.grid_columnconfigure(0, weight=1)
-            self._harvest_frame = harvest_frame
-            ttk.Label(harvest_frame, text="五谷丰登：").grid(row=0, column=0, sticky="w")
-            self._harvest_buttons = []
-            for i in range(2):
-                btn = ttk.Button(harvest_frame, text=f"候选{i + 1}", command=lambda idx=i: self._submit_harvest(idx))
-                btn.grid(row=0, column=i + 1, padx=(6, 0))
-                btn.configure(state="disabled")
-                self._harvest_buttons.append(btn)
-
             footer = ttk.Frame(page)
-            footer.grid(row=10, column=0, sticky="ew", pady=(10, 0))
+            footer.grid(row=6, column=0, sticky="ew", pady=(10, 0))
             ttk.Button(footer, text="返回开始", command=lambda: self.show("start")).grid(row=0, column=0)
             ttk.Button(footer, text="退出", command=self.root.destroy).grid(row=0, column=1, padx=(8, 0))
             return page
@@ -246,13 +185,13 @@ def run_gui() -> None:
             self.engine.dispatch(UIAction(type=ActionType.START, text=self._general_var.get().strip() or None))
             self._clear_logs()
             self._cancel_selection()
-            self._sync_response_bar(None)
+            self._close_active_modal()
             self.show("battle")
 
         def _restart_game(self) -> None:
             self._clear_logs()
             self._cancel_selection()
-            self._sync_response_bar(None)
+            self._close_active_modal()
             self.show("start")
 
         def _tick(self) -> None:
@@ -458,7 +397,6 @@ def run_gui() -> None:
             can_play = req is not None and req.kind == "play" and snapshot.current_player == human_name
             can_discard = req is not None and req.kind == "discard_select" and snapshot.current_player == human_name
             can_skill_card = req is not None and req.kind == "skill_card_select" and snapshot.current_player == human_name
-            can_skill_target = req is not None and req.kind == "skill_target_select" and snapshot.current_player == human_name
             for btn in self._hand_buttons:
                 btn.configure(state=("normal" if (can_play or can_discard or can_skill_card) else "disabled"))
             if self._confirm_btn is not None:
@@ -467,50 +405,114 @@ def run_gui() -> None:
                 self._cancel_btn.configure(state=("normal" if (can_play or can_discard or can_skill_card) else "disabled"))
             if self._end_phase_btn is not None:
                 self._end_phase_btn.configure(state=("normal" if can_play else "disabled"))
+            self._sync_modal_request(req)
 
-            if req is not None and req.kind == "yesno" and snapshot.winner is None:
-                self._sync_response_bar(req.prompt)
-            else:
-                self._sync_response_bar(None)
-
-            self._sync_area_bar(req)
-            self._sync_harvest_bar(req)
-            self._sync_skill_target_bar(can_skill_target)
-
-        def _sync_skill_target_bar(self, can_skill_target: bool) -> None:
-            if self._skill_target_self_btn is not None:
-                self._skill_target_self_btn.configure(state=("normal" if can_skill_target else "disabled"))
-            if self._skill_target_enemy_btn is not None:
-                self._skill_target_enemy_btn.configure(state=("normal" if can_skill_target else "disabled"))
-
-        def _sync_area_bar(self, req: Any) -> None:
-            enable = req is not None and req.kind == "area_select"
-            if self._area_buttons:
-                for btn in self._area_buttons.values():
-                    btn.configure(state=("normal" if enable else "disabled"))
-
-        def _sync_harvest_bar(self, req: Any) -> None:
-            if not self._harvest_buttons:
+        def _sync_modal_request(self, req: Any) -> None:
+            modal_kinds = {"yesno", "skill_target_select", "area_select", "harvest_select"}
+            if req is None or req.kind not in modal_kinds:
+                self._close_active_modal()
                 return
-            if req is None or req.kind != "harvest_select":
-                for btn in self._harvest_buttons:
-                    btn.configure(state="disabled", text="候选")
+            if (
+                self._active_modal is not None
+                and self._active_modal.winfo_exists()
+                and self._active_modal_kind == req.kind
+                and self._active_modal_prompt == req.prompt
+            ):
                 return
-            options = self._parse_indexed_options(req.prompt)
-            for idx, btn in enumerate(self._harvest_buttons):
-                if idx in options:
-                    btn.configure(state="normal", text=options[idx])
-                else:
-                    btn.configure(state="disabled", text="候选")
+            self._close_active_modal()
+            self._create_modal(req.kind, req.prompt)
+
+        def _create_modal(self, kind: str, prompt: str) -> None:
+            from tkinter import Toplevel
+
+            title_map = {
+                "yesno": "响应选择",
+                "skill_target_select": "技能目标",
+                "area_select": "区域选择",
+                "harvest_select": "五谷丰登",
+            }
+            modal = Toplevel(self.root)
+            modal.title(title_map.get(kind, "输入"))
+            modal.transient(self.root)
+            modal.resizable(False, False)
+            modal.protocol("WM_DELETE_WINDOW", lambda: None)
+            modal.bind("<Escape>", lambda _event: "break")
+            body = ttk.Frame(modal, padding=12)
+            body.grid(row=0, column=0, sticky="nsew")
+            ttk.Label(body, text=prompt, foreground="#8a6d3b", wraplength=420, justify="left").grid(
+                row=0, column=0, sticky="w"
+            )
+            btn_row = ttk.Frame(body)
+            btn_row.grid(row=1, column=0, sticky="w", pady=(10, 0))
+
+            if kind == "yesno":
+                ttk.Button(btn_row, text="是 (y)", command=lambda: self._submit_response("y")).grid(row=0, column=0)
+                ttk.Button(btn_row, text="否 (n)", command=lambda: self._submit_response("n")).grid(
+                    row=0, column=1, padx=(8, 0)
+                )
+            elif kind == "skill_target_select":
+                options = self._parse_indexed_options(prompt)
+                for idx, label in sorted(options.items()):
+                    ttk.Button(btn_row, text=f"{label}[{idx}]", command=lambda x=idx: self._submit_skill_target(str(x))).grid(
+                        row=idx // 3, column=idx % 3, padx=(0, 8), pady=(0, 6), sticky="w"
+                    )
+            elif kind == "area_select":
+                area_codes = [("h", "手牌"), ("w", "武器"), ("a", "防具"), ("p", "+1马"), ("m", "-1马"), ("j", "判定区")]
+                for idx, (code, text) in enumerate(area_codes):
+                    ttk.Button(btn_row, text=text, command=lambda c=code: self._submit_area(c)).grid(
+                        row=idx // 3, column=idx % 3, padx=(0, 8), pady=(0, 6), sticky="w"
+                    )
+            elif kind == "harvest_select":
+                options = self._parse_indexed_options(prompt)
+                for idx, label in sorted(options.items()):
+                    ttk.Button(btn_row, text=label, command=lambda x=idx: self._submit_harvest(x)).grid(
+                        row=idx // 3, column=idx % 3, padx=(0, 8), pady=(0, 6), sticky="w"
+                    )
+
+            modal.update_idletasks()
+            self._center_modal(modal)
+            modal.grab_set()
+            modal.focus_force()
+            self._active_modal = modal
+            self._active_modal_kind = kind
+            self._active_modal_prompt = prompt
+
+        def _center_modal(self, modal: Any) -> None:
+            self.root.update_idletasks()
+            x = self.root.winfo_rootx()
+            y = self.root.winfo_rooty()
+            w = self.root.winfo_width()
+            h = self.root.winfo_height()
+            mw = modal.winfo_reqwidth()
+            mh = modal.winfo_reqheight()
+            left = max(x + (w - mw) // 2, 0)
+            top = max(y + (h - mh) // 2, 0)
+            modal.geometry(f"+{left}+{top}")
+
+        def _close_active_modal(self) -> None:
+            modal = self._active_modal
+            if modal is not None:
+                try:
+                    if modal.winfo_exists():
+                        modal.grab_release()
+                        modal.destroy()
+                except Exception:
+                    pass
+            self._active_modal = None
+            self._active_modal_kind = None
+            self._active_modal_prompt = None
 
         def _submit_area(self, code: str) -> None:
             self.engine.dispatch(UIAction(type=ActionType.SUBMIT_TEXT, text=code))
+            self._close_active_modal()
 
         def _submit_harvest(self, idx: int) -> None:
             self.engine.dispatch(UIAction(type=ActionType.SUBMIT_TEXT, text=str(idx)))
+            self._close_active_modal()
 
         def _submit_skill_target(self, idx: str) -> None:
             self.engine.dispatch(UIAction(type=ActionType.SUBMIT_TEXT, text=idx))
+            self._close_active_modal()
 
         def _parse_needed_discard(self, prompt: str) -> int:
             marker = "需弃"
@@ -533,29 +535,13 @@ def run_gui() -> None:
                 if not idx_txt.isdigit():
                     continue
                 idx = int(idx_txt)
-                label = rest.strip().split("  ")[0].strip()
+                label = rest.strip().split(" [")[0].strip().rstrip(":").rstrip("：")
                 options[idx] = label
             return options
 
-        def _sync_response_bar(self, prompt: str | None) -> None:
-            if self._response_bar is None:
-                return
-            if prompt is None:
-                self._response_label_var.set("响应区：当前无可响应事件。")
-                if self._response_yes_btn is not None:
-                    self._response_yes_btn.configure(state="disabled")
-                if self._response_no_btn is not None:
-                    self._response_no_btn.configure(state="disabled")
-                return
-            self._response_label_var.set(f"响应区：{prompt}")
-            if self._response_yes_btn is not None:
-                self._response_yes_btn.configure(state="normal")
-            if self._response_no_btn is not None:
-                self._response_no_btn.configure(state="normal")
-
         def _submit_response(self, ans: str) -> None:
             self.engine.dispatch(UIAction(type=ActionType.SUBMIT_TEXT, text=ans))
-            self._sync_response_bar(None)
+            self._close_active_modal()
 
         def _sync_skills(self, snapshot: Any, human_name: str) -> None:
             human = snapshot.players[snapshot.human_index]

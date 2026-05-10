@@ -48,17 +48,17 @@ def qingnang_active(game: "Game", actor: "Player", target: "Player") -> "ActionR
         return game.make_action_result(False, "【青囊】本回合已使用。")
     if not actor.hand:
         return game.make_action_result(False, "【青囊】发动失败：没有可弃置的手牌。")
-    choices = [p for p in (actor, target) if p.alive and p.hp < p.max_hp]
+    choices = [p for p in game.players if p.alive and p.hp < p.max_hp]
     if not choices:
         return game.make_action_result(False, "【青囊】发动失败：没有受伤角色。")
 
     discard_idx = 0
     chosen = choices[0]
     if actor.is_ai:
-        if actor.hp <= 2:
+        if actor in choices and actor.hp <= 2:
             chosen = actor
-        elif target.hp < target.max_hp:
-            chosen = target
+        else:
+            chosen = min(choices, key=lambda p: (p.hp, 0 if p is actor else 1))
     else:
         hand_list = " ".join(f"[{i}] {c.name} {c.suit}{c.rank}" for i, c in enumerate(actor.hand))
         ans_card = game.input(f"技能选牌-青囊：请选择要弃置的手牌编号 {hand_list}: ").strip()
@@ -66,11 +66,11 @@ def qingnang_active(game: "Game", actor: "Player", target: "Player") -> "ActionR
             return game.make_action_result(False, "【青囊】发动失败：弃牌选择无效。")
         discard_idx = int(ans_card)
         if len(choices) > 1:
-            ans_target = game.input(f"技能目标-青囊：选择回复目标 [0]{actor.name} [1]{target.name}: ").strip()
-            if ans_target == "1":
-                chosen = target
-            else:
-                chosen = actor
+            target_options = " ".join(f"[{i}]{p.name}" for i, p in enumerate(choices))
+            ans_target = game.input(f"技能目标-青囊：请选择回复目标 {target_options}: ").strip()
+            if not ans_target.isdigit() or not (0 <= int(ans_target) < len(choices)):
+                return game.make_action_result(False, "【青囊】发动失败：目标选择无效。")
+            chosen = choices[int(ans_target)]
         else:
             chosen = choices[0]
 

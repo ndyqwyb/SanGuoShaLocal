@@ -165,6 +165,34 @@ def test_qingnang_active_discards_and_heals() -> None:
     assert len(a.hand) == 0
 
 
+def test_qingnang_target_prompt_lists_wounded_players_with_indexes() -> None:
+    prompts: list[str] = []
+    answers = iter(["0", "1"])
+
+    def _input(prompt: str) -> str:
+        prompts.append(prompt)
+        return next(answers)
+
+    game = Game(
+        Player(name="A", is_ai=False, general="华佗"),
+        Player(name="B", is_ai=False, general="关羽"),
+        seed=7,
+        input_func=_input,
+        output_func=lambda _: None,
+    )
+    game.setup()
+    a, b = game.player, game.enemy
+    a.hp = 2
+    b.hp = 2
+    a.hand = [Card(CardName.SHA)]
+    res = game._use_active_skill(a, b, 0)
+    assert res.ok is True
+    assert b.hp == 3
+    target_prompt = next(p for p in prompts if p.startswith("技能目标-青囊"))
+    assert "[0]A" in target_prompt
+    assert "[1]B" in target_prompt
+
+
 def test_jizhi_draws_after_trick() -> None:
     game = make_game()
     a, b = game.player, game.enemy
