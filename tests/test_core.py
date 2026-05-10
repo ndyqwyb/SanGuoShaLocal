@@ -461,6 +461,41 @@ def test_delayed_tricks_indulgence_supply_and_lightning() -> None:
     assert b.hp <= 1
 
 
+def test_delayed_tricks_do_not_ask_nullify_on_play_but_ask_in_judgment() -> None:
+    prompts: list[str] = []
+    answers = iter(["y", "n", "y", "n", "y"])
+
+    def _input(prompt: str) -> str:
+        prompts.append(prompt)
+        return next(answers)
+
+    game = Game(
+        Player(name="A", is_ai=False),
+        Player(name="B", is_ai=False),
+        seed=1,
+        input_func=_input,
+        output_func=lambda _: None,
+    )
+    a, b = game.player, game.enemy
+    a.hand = [Card(CardName.INDULGENCE), Card(CardName.SUPPLY_SHORTAGE), Card(CardName.LIGHTNING), Card(CardName.NULLIFY)]
+    b.hand = [Card(CardName.NULLIFY), Card(CardName.NULLIFY)]
+
+    game.play_card(a, b, 0)  # 乐不思蜀
+    game.play_card(a, b, 0)  # 兵粮寸断
+    game.play_card(a, b, 0)  # 闪电（自挂）
+
+    assert not any("无懈可击" in p for p in prompts)
+
+    game._resolve_judgment_area(b)
+    assert any("无懈可击" in p and "乐不思蜀" in p for p in prompts)
+    assert any("无懈可击" in p and "兵粮寸断" in p for p in prompts)
+    assert b.skip_play_phase is False
+    assert b.skip_draw_phase is False
+
+    game._resolve_judgment_area(a)
+    assert any("无懈可击" in p and "闪电" in p for p in prompts)
+
+
 def test_build_deck_is_random_when_seed_none() -> None:
     deck1 = build_deck(seed=None)
     deck2 = build_deck(seed=None)

@@ -128,7 +128,7 @@ def run_gui() -> None:
 
             controls = ttk.Frame(hand_area)
             controls.grid(row=2, column=0, sticky="ew", pady=(10, 10))
-            confirm_btn = ttk.Button(controls, text="确认出牌", command=self._confirm_play)
+            confirm_btn = ttk.Button(controls, text="确认", command=self._confirm_play)
             confirm_btn.grid(row=0, column=0)
             cancel_btn = ttk.Button(controls, text="取消", command=self._cancel_selection)
             cancel_btn.grid(row=0, column=1, padx=(8, 0))
@@ -167,7 +167,7 @@ def run_gui() -> None:
 
             footer = ttk.Frame(page)
             footer.grid(row=6, column=0, sticky="ew", pady=(10, 0))
-            ttk.Button(footer, text="返回开始", command=lambda: self.show("start")).grid(row=0, column=0)
+            ttk.Button(footer, text="返回开始", command=self._restart_game).grid(row=0, column=0)
             ttk.Button(footer, text="退出", command=self.root.destroy).grid(row=0, column=1, padx=(8, 0))
             return page
 
@@ -189,9 +189,12 @@ def run_gui() -> None:
             self.show("battle")
 
         def _restart_game(self) -> None:
+            self.engine.dispatch(UIAction(type=ActionType.STOP))
+            self.engine = LocalVisualEngine()
             self._clear_logs()
             self._cancel_selection()
             self._close_active_modal()
+            self._last_request_kind = None
             self.show("start")
 
         def _tick(self) -> None:

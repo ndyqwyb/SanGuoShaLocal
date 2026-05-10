@@ -217,3 +217,30 @@ def test_start_and_restart_apply_selected_general() -> None:
         assert snap.players[snap.human_index].general == "黄月英"
     finally:
         engine.close()
+
+
+def test_stop_then_start_uses_latest_selected_general() -> None:
+    engine = LocalVisualEngine(config=VisualEngineConfig(seed=19, ai_delay_seconds=0.0, max_rounds=4))
+    try:
+        engine.dispatch(UIAction(type=ActionType.START, text="华佗"))
+        deadline = time.monotonic() + 3.0
+        while time.monotonic() < deadline:
+            snap = engine.get_snapshot()
+            human = snap.players[snap.human_index]
+            if human.general == "华佗":
+                break
+            time.sleep(0.01)
+        assert engine.get_snapshot().players[engine.get_snapshot().human_index].general == "华佗"
+
+        engine.dispatch(UIAction(type=ActionType.STOP))
+        engine.dispatch(UIAction(type=ActionType.START, text="黄月英"))
+        deadline = time.monotonic() + 3.0
+        while time.monotonic() < deadline:
+            snap = engine.get_snapshot()
+            human = snap.players[snap.human_index]
+            if human.general == "黄月英":
+                break
+            time.sleep(0.01)
+        assert engine.get_snapshot().players[engine.get_snapshot().human_index].general == "黄月英"
+    finally:
+        engine.close()
