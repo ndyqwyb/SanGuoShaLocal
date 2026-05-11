@@ -6,7 +6,7 @@ from typing import Callable, Iterable
 
 from .cards import Card, CardConfig, CardDefinition, CardName, build_deck, load_card_definitions
 from .generals import GENERAL_POOL, GeneralDefinition, get_general_by_name
-from .player import Player
+from .player import Player, Role
 from .skills import ACTIVE_SKILL_HANDLERS, PASSIVE_SKILL_HANDLERS
 
 
@@ -58,6 +58,7 @@ class Game:
         self.player = player
         self.enemy = enemy
         self.players = [player, enemy]
+        self._assign_default_roles()
         self.rng = random.Random(seed)
         self.ai_config = ai_config or AIStrategyConfig()
         self.input = input_func
@@ -113,6 +114,40 @@ class Game:
             self.output(f"{p.name} 选择武将：{p.general}（体力上限{p.max_hp}）")
         self.output(f"先手：{self.current_player().name}")
 
+    def _assign_default_roles(self) -> None:
+        if len(self.players) == 2:
+            self.player.role = Role.LORD
+            self.enemy.role = Role.REBEL
+
+    def _alive_players(self) -> list[Player]:
+        return [p for p in self.players if p.alive]
+
+    def _index_of_player(self, p: Player) -> int:
+        return self.players.index(p)
+
+    def _iter_ccw_alive(self, start: Player) -> list[Player]:
+        alive = [p for p in self.players if p.alive]
+        if not alive:
+            return []
+        start_idx = self._index_of_player(start)
+        res: list[Player] = []
+        n = len(self.players)
+        i = start_idx
+        visited = 0
+        while visited < n:
+            cur = self.players[i]
+            if cur.alive:
+                res.append(cur)
+            i = (i - 1) % n
+            visited += 1
+        return res
+
+    def _human_player(self) -> Player:
+        for p in self.players:
+            if not p.is_ai:
+                return p
+        return self.players[0]
+
     def make_action_result(self, ok: bool, message: str) -> ActionResult:
         return ActionResult(ok=ok, message=message)
 
@@ -151,7 +186,8 @@ class Game:
 
     def lose_hp(self, victim: Player, amount: int = 1) -> None:
         victim.hp -= amount
-        self._check_death(victim, self.other_player(victim))
+        if victim.alive and victim.hp <= 0:
+            self._enter_dying(victim, self.other_player(victim))
 
     def deal_damage(
         self,
@@ -177,11 +213,12 @@ class Game:
         reason: str = "",
     ) -> None:
         victim.take_damage(amount)
+        if victim.alive and victim.hp <= 0:
+            attacker = source if source is not None else self.other_player(victim)
+            survived = self._enter_dying(victim, attacker)
+            if not survived:
+                return
         self._trigger_event("after_damage", victim=victim, source=source, amount=amount, card=card, reason=reason)
-        if source is not None:
-            self._check_death(victim, source)
-        else:
-            self._check_death(victim, self.other_player(victim))
 
     def _run_judgment(self, judge_owner: Player, *, reason_card: Card | None = None, reason_text: str = "") -> Card | None:
         judge = self.draw_judge_card()
@@ -197,6 +234,7 @@ class Game:
                 owner.hand.append(final)
                 self.output(f"[结算] {owner.name} 获得判定牌：{self._format_card_short(final)}")
                 final = replaced
+                self.output(f"[判定] {judge_owner.name} 判定牌被替换为：{self._format_card_short(final)}")
         taken = False
         for owner, _, handler in self.passive_skill_registry.get("after_judge", []):
             if not owner.alive:
@@ -257,9 +295,17 @@ class Game:
         pending = actor.judgment_area[:]
         actor.judgment_area.clear()
         for delayed in pending:
-            if self._is_trick_countered(self.other_player(actor), actor, delayed):
+            if self._is_delayed_trick_countered(actor, delayed):
                 self.output(f"[结算] {actor.name} 判定区的【{delayed.name}】被无懈可击抵消。")
-                self.discard(delayed)
+                if delayed.name == CardName.LIGHTNING:
+                    next_player = self.other_player(actor)
+                    if not self._has_delayed(next_player, CardName.LIGHTNING):
+                        next_player.judgment_area.append(delayed)
+                        self.output(f"【闪电】被无懈可击抵消，转移给 {next_player.name}。")
+                    else:
+                        self.discard(delayed)
+                else:
+                    self.discard(delayed)
                 continue
             judge = self._run_judgment(actor, reason_card=delayed, reason_text=delayed.name)
             if judge is None:
@@ -466,6 +512,7 @@ class Game:
         if hand_index < 0 or hand_index >= len(actor.hand):
             return ActionResult(False, "索引越界。")
         card = actor.hand[hand_index]
+        target = self._resolve_effective_target(actor, target, card.name)
         definition = self.card_definitions.get(card.name)
         if definition is None:
             return ActionResult(False, f"未知卡牌：{card.name}")
@@ -486,6 +533,24 @@ class Game:
         if result.ok and definition.category == "trick":
             self._trigger_event("after_use_trick", actor=actor, target=target, card=card)
         return result
+
+    def _resolve_effective_target(self, actor: Player, target: Player, card_name: str) -> Player:
+        self_target_cards = {
+            CardName.TAO,
+            CardName.ZHUGE_CROSSBOW,
+            CardName.QINGGANG_SWORD,
+            CardName.BAGUA_SHIELD,
+            CardName.CHITU,
+            CardName.ZIXING,
+            CardName.DILU,
+            CardName.EX_NIHILO,
+            CardName.PEACH_GARDEN,
+            CardName.HARVEST,
+            CardName.LIGHTNING,
+        }
+        if card_name in self_target_cards:
+            return actor
+        return target
 
     def _validate_card_target(self, actor: Player, target: Player, card: Card) -> ActionResult | None:
         if card.name == CardName.SHA and not self._in_attack_range(actor, target):
@@ -630,9 +695,17 @@ class Game:
 
     def _effect_peach_garden(self, actor: Player, target: Player, card: Card, __: CardDefinition) -> ActionResult:
         self.discard(card)
-        if self._is_trick_countered(actor, target, card):
-            return ActionResult(True, f"{actor.name} 的【{card.name}】被无懈可击抵消。")
-        for p in self.players:
+        for p in self._iter_ccw_alive(actor):
+            effective = self._resolve_nullify_chain(
+                starter=actor,
+                trick_user=actor,
+                trick_name=card.name,
+                target=p,
+                effective=True,
+            )
+            if not effective:
+                self.output(f"[结算] {p.name} 受到的【{card.name}】效果被无懈可击抵消。")
+                continue
             if p.alive:
                 p.heal(1)
         return ActionResult(True, f"{actor.name} 使用【桃园结义】。")
@@ -640,8 +713,6 @@ class Game:
     def _effect_harvest(self, actor: Player, target: Player, card: Card, __: CardDefinition) -> ActionResult:
         self.discard(card)
         self.output(f"[声明] {actor.name} 使用【{card.name}】。")
-        if self._is_trick_countered(actor, target, card):
-            return ActionResult(True, f"[结算] {actor.name} 的【{card.name}】被无懈可击抵消。")
         pool: list[Card] = []
         for _ in range(sum(1 for p in self.players if p.alive)):
             drawn = self.draw_judge_card()
@@ -649,15 +720,31 @@ class Game:
                 pool.append(drawn)
         if not pool:
             return ActionResult(True, "[结算] 【五谷丰登】无牌可分。")
-        self.output("[信息] 五谷展示：" + " ".join(f"[{i}] {c.name}{c.suit}{c.rank}" for i, c in enumerate(pool)))
-        first_idx = self._choose_harvest_index(actor, pool)
-        first_card = pool.pop(first_idx)
-        actor.hand.append(first_card)
-        self.output(f"[结算] {actor.name} 获得【{first_card.name}】。")
-        if pool and target.alive:
-            second_card = pool.pop(0)
-            target.hand.append(second_card)
-            self.output(f"[结算] {target.name} 获得【{second_card.name}】。")
+        self.output("[信息] 五谷展示：" + " ".join(f"[{i}] {self._format_card_short(c)}" for i, c in enumerate(pool)))
+        pickers = self._iter_ccw_alive(actor)
+        last_picker = pickers[-1] if pickers else actor
+        for picker in pickers:
+            if not pool:
+                break
+            effective = self._resolve_nullify_chain(
+                starter=actor,
+                trick_user=actor,
+                trick_name=card.name,
+                target=picker,
+                effective=True,
+            )
+            if not effective:
+                self.output(f"[结算] {picker.name} 受到的【{card.name}】效果被无懈可击抵消，跳过选牌。")
+                continue
+            if picker is last_picker and len(pool) == 1:
+                card_got = pool.pop(0)
+                picker.hand.append(card_got)
+                self.output(f"[结算] {picker.name} 直接获得【{card_got.name}】。")
+                continue
+            idx = self._choose_harvest_index(picker, pool)
+            card_got = pool.pop(idx)
+            picker.hand.append(card_got)
+            self.output(f"[结算] {picker.name} 获得【{card_got.name}】。")
         for remain in pool:
             self.discard(remain)
         return ActionResult(True, "")
@@ -667,9 +754,9 @@ class Game:
             return 0
         if actor.is_ai:
             return self._score_harvest_for_ai(actor, pool)
-        options = " ".join(f"[{i}] {c.name} {c.suit}{c.rank}" for i, c in enumerate(pool))
+        options = " ".join(f"[{i}] {self._format_card_short(c)}" for i, c in enumerate(pool))
         while True:
-            ans = self.input(f"五谷选择：请选择1张获得 {options}: ").strip()
+            ans = self.input(f"五谷选择：{actor.name}请选择1张获得 {options}: ").strip()
             if ans.isdigit() and 0 <= int(ans) < len(pool):
                 return int(ans)
             self.output("[信息] 五谷选择无效，请重试。")
@@ -820,17 +907,74 @@ class Game:
         self.discard(card)
         self.output(f"[结算] {actor.name} 拆掉了 {target.name} 的{source}牌【{card.name}】。")
 
-    def _is_trick_countered(self, actor: Player, target: Player, card: Card) -> bool:
-        controller = target
-        countered = False
+    def _resolve_nullify_chain(
+        self,
+        *,
+        starter: Player,
+        trick_user: Player | None,
+        trick_name: str,
+        target: Player,
+        effective: bool = True,
+    ) -> bool:
         while True:
-            if not controller.has_card(CardName.NULLIFY):
-                return countered
-            prompt = f"{controller.name} 是否打出【无懈可击】响应【{card.name}】？(y/n): "
-            if not self._ask_for_specific_card(controller, CardName.NULLIFY, prompt):
-                return countered
-            countered = not countered
-            controller = actor if controller is target else target
+            played = False
+            for p in self._iter_ccw_alive(starter):
+                if not p.has_card(CardName.NULLIFY):
+                    continue
+                if trick_user is not None:
+                    if effective:
+                        prompt = (
+                            f"{trick_user.name} 的 {trick_name} 锦囊即将对 {target.name} 生效，"
+                            "是否使用【无懈可击】使其失效？(y/n): "
+                        )
+                    else:
+                        prompt = (
+                            f"{trick_user.name} 的 {trick_name} 锦囊即将对 {target.name} 失效，"
+                            "是否使用【无懈可击】使其生效？(y/n): "
+                        )
+                else:
+                    if effective:
+                        prompt = f"{trick_name} 锦囊即将对 {target.name} 生效，是否使用【无懈可击】使其失效？(y/n): "
+                    else:
+                        prompt = f"{trick_name} 锦囊即将对 {target.name} 失效，是否使用【无懈可击】使其生效？(y/n): "
+                if p.is_ai:
+                    want_effective = p.is_enemy_of(target)
+                    should_play = (effective and not want_effective) or ((not effective) and want_effective)
+                    if not should_play:
+                        continue
+                    card = p.remove_one(CardName.NULLIFY)
+                    if card is None:
+                        continue
+                    self.discard(card)
+                    self.output(f"[响应] {p.name} 打出【无懈可击】。")
+                else:
+                    if not self._ask_for_specific_card(p, CardName.NULLIFY, prompt):
+                        continue
+                effective = not effective
+                played = True
+                break
+            if not played:
+                return effective
+
+    def _is_trick_countered(self, actor: Player, target: Player, card: Card) -> bool:
+        effective = self._resolve_nullify_chain(
+            starter=actor,
+            trick_user=actor,
+            trick_name=card.name,
+            target=target,
+            effective=True,
+        )
+        return not effective
+
+    def _is_delayed_trick_countered(self, target: Player, card: Card) -> bool:
+        effective = self._resolve_nullify_chain(
+            starter=target,
+            trick_user=None,
+            trick_name=card.name,
+            target=target,
+            effective=True,
+        )
+        return not effective
 
     def _ask_for_specific_card(self, p: Player, card_name: str, prompt: str) -> bool:
         if not p.has_card(card_name):
@@ -925,37 +1069,82 @@ class Game:
         return True
 
     def _check_death(self, victim: Player, attacker: Player) -> None:
-        if victim.hp > 0 or not victim.alive:
+        if not victim.alive:
             return
-        while victim.hp <= 0:
-            can_tao = victim.has_card(CardName.TAO)
-            can_jijiu = victim.general == "华佗" and self.current_player() is not victim and any(c.is_red for c in victim.hand)
-            if not can_tao and not can_jijiu:
-                break
-            if not victim.is_ai:
-                ans = self.input(f"{victim.name} 濒死，是否使用【桃】/【急救】自救？(y/n): ").strip().lower()
-                if ans != "y":
+        if victim.hp <= 0:
+            self._enter_dying(victim, attacker)
+
+    def _enter_dying(self, victim: Player, attacker: Player) -> bool:
+        if not victim.alive:
+            return False
+        self.output(f"[濒死] {victim.name} 进入濒死（HP={victim.hp}）。")
+        order = self._iter_ccw_alive(self._human_player())
+        while victim.hp <= 0 and victim.alive:
+            rescued = False
+            for rescuer in order:
+                if victim.hp > 0 or not victim.alive:
                     break
-            tao_card = victim.remove_one(CardName.TAO)
-            used_jijiu = False
-            if tao_card is None and can_jijiu:
-                for i, c in enumerate(victim.hand):
-                    if c.is_red:
-                        tao_card = victim.hand.pop(i)
-                        used_jijiu = True
-                        break
-            if tao_card is None:
+                can_tao = rescuer.has_card(CardName.TAO)
+                can_jijiu = rescuer.general == "华佗" and self.current_player() is not rescuer and any(c.is_red for c in rescuer.hand)
+                if not can_tao and not can_jijiu:
+                    continue
+                if rescuer.is_ai:
+                    if not (rescuer is victim or rescuer.is_ally_of(victim)):
+                        continue
+                    tao_card = rescuer.remove_one(CardName.TAO)
+                    used_jijiu = False
+                    if tao_card is None and can_jijiu:
+                        for i, c in enumerate(rescuer.hand):
+                            if c.is_red:
+                                tao_card = rescuer.hand.pop(i)
+                                used_jijiu = True
+                                break
+                    if tao_card is None:
+                        continue
+                    self.discard(tao_card)
+                    victim.heal(1)
+                    rescued = True
+                    if used_jijiu:
+                        self.output(f"[结算] {rescuer.name} 发动【急救】，救援 {victim.name}，体力回到 {victim.hp}。")
+                    else:
+                        self.output(f"[结算] {rescuer.name} 使用【桃】救援 {victim.name}，体力回到 {victim.hp}。")
+                    continue
+                ans = self.input(
+                    f"濒死求桃：{victim.name} 濒死（HP={victim.hp}），{rescuer.name} 是否使用【桃】/【急救】救援？(y/n): "
+                ).strip().lower()
+                if ans != "y":
+                    continue
+                tao_card = rescuer.remove_one(CardName.TAO)
+                used_jijiu = False
+                if tao_card is None and can_jijiu:
+                    listing = " ".join(f"[{i}] {c.name} {c.suit}{c.rank}" for i, c in enumerate(rescuer.hand) if c.is_red)
+                    while True:
+                        ans_idx = self.input(f"技能选牌-急救：请选择一张红色手牌当【桃】使用 {listing}: ").strip()
+                        if not ans_idx.isdigit():
+                            continue
+                        idx = int(ans_idx)
+                        if 0 <= idx < len(rescuer.hand) and rescuer.hand[idx].is_red:
+                            tao_card = rescuer.hand.pop(idx)
+                            used_jijiu = True
+                            break
+                if tao_card is None:
+                    continue
+                self.discard(tao_card)
+                victim.heal(1)
+                rescued = True
+                if used_jijiu:
+                    self.output(f"[结算] {rescuer.name} 发动【急救】，救援 {victim.name}，体力回到 {victim.hp}。")
+                else:
+                    self.output(f"[结算] {rescuer.name} 使用【桃】救援 {victim.name}，体力回到 {victim.hp}。")
+            if not rescued:
                 break
-            self.discard(tao_card)
-            victim.heal(1)
-            if used_jijiu:
-                self.output(f"[结算] {victim.name} 发动【急救】，将红牌当【桃】自救，体力回到 {victim.hp}。")
-            else:
-                self.output(f"[结算] {victim.name} 使用【桃】自救，体力回到 {victim.hp}。")
         if victim.hp <= 0:
             victim.alive = False
             self.winner = attacker
             self.output(f"[结算] {victim.name} 阵亡，{attacker.name} 获胜！")
+            return False
+        self.output(f"[濒死] {victim.name} 脱离濒死（HP={victim.hp}）。")
+        return True
 
     def register_passive_skill(self, event: str, owner: Player, skill_name: str, handler: PassiveSkillHandler) -> None:
         self.passive_skill_registry.setdefault(event, []).append((owner, skill_name, handler))

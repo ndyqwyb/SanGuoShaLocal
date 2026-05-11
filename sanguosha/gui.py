@@ -13,6 +13,10 @@ class GuiConfig:
     refresh_ms: int = 100
 
 
+HAND_MAX_COLS = 8
+HAND_SLOT_WIDTH = 14
+
+
 def run_gui() -> None:
     from tkinter import StringVar, Tk, ttk
     from tkinter.scrolledtext import ScrolledText
@@ -22,8 +26,9 @@ def run_gui() -> None:
             self.root = root
             self.config = config or GuiConfig()
             self.engine = LocalVisualEngine()
-            self.root.minsize(980, 720)
-            self.root.geometry("980x720")
+            self.root.minsize(860, 620)
+            self.root.resizable(True, True)
+            self.root.geometry("860x620")
             self._style = ttk.Style()
             self._style.configure("Selected.TButton", font=("TkDefaultFont", 10, "bold"))
             self._frame = ttk.Frame(root, padding=16)
@@ -35,11 +40,18 @@ def run_gui() -> None:
             self._current_page: str | None = None
             self._winner_var = StringVar(value="")
             self._self_var = StringVar(value="")
+            self._self_equip_var = StringVar(value="")
+            self._self_horse_var = StringVar(value="")
+            self._self_judge_var = StringVar(value="")
             self._enemy_var = StringVar(value="")
+            self._enemy_equip_var = StringVar(value="")
+            self._enemy_horse_var = StringVar(value="")
+            self._enemy_judge_var = StringVar(value="")
             self._status_var = StringVar(value="")
             self._hint_var = StringVar(value="")
             self._general_var = StringVar(value=GENERAL_POOL[0].name if GENERAL_POOL else "")
             self._general_desc_var = StringVar(value="")
+            self._battle_geometry_set = False
             self._log_widget: Any | None = None
             self._hand_cards: tuple[CardView, ...] = ()
             self._hand_buttons: list[Any] = []
@@ -76,6 +88,16 @@ def run_gui() -> None:
             page = self.pages[name]
             page.grid(row=0, column=0, sticky="nsew")
             self._current_page = name
+            if name == "battle" and not self._battle_geometry_set:
+                self._fit_battle_geometry()
+                self._battle_geometry_set = True
+
+        def _fit_battle_geometry(self) -> None:
+            self.root.update_idletasks()
+            reqw = self._frame.winfo_reqwidth()
+            reqh = max(620, self._frame.winfo_reqheight())
+            self.root.geometry(f"{reqw}x{reqh}")
+            self.root.minsize(reqw, 620)
 
         def _build_start_page(self, parent: Any) -> Any:
             page = ttk.Frame(parent)
@@ -112,26 +134,36 @@ def run_gui() -> None:
 
             page = ttk.Frame(parent)
             page.grid_columnconfigure(0, weight=1)
-            page.grid_rowconfigure(4, weight=1)
+            page.grid_rowconfigure(3, weight=0)
+            page.grid_rowconfigure(5, weight=1)
 
             info = ttk.Frame(page)
             info.grid(row=0, column=0, sticky="ew")
-            info.grid_columnconfigure(0, weight=1)
-            info.grid_columnconfigure(1, weight=1)
+            info.grid_columnconfigure(0, weight=1, uniform="player_box")
+            info.grid_columnconfigure(1, weight=1, uniform="player_box")
 
             self_box = Frame(info, bd=2, relief="groove", padx=8, pady=6)
-            self_box.grid(row=0, column=0, sticky="ew", padx=(0, 8))
+            self_box.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
             self_box.grid_columnconfigure(0, weight=1)
+            self_box.grid_columnconfigure(1, weight=0)
             ttk.Label(self_box, text="我方").grid(row=0, column=0, sticky="w")
-            ttk.Label(self_box, textvariable=self._self_var).grid(row=1, column=0, sticky="w")
+            ttk.Label(self_box, text="").grid(row=0, column=1, sticky="e")
+            ttk.Label(self_box, textvariable=self._self_var).grid(row=1, column=0, columnspan=2, sticky="w")
+            ttk.Label(self_box, textvariable=self._self_equip_var).grid(row=2, column=0, columnspan=2, sticky="w", pady=(4, 0))
+            ttk.Label(self_box, textvariable=self._self_horse_var).grid(row=3, column=0, columnspan=2, sticky="w")
+            ttk.Label(self_box, textvariable=self._self_judge_var).grid(row=4, column=0, columnspan=2, sticky="w")
             self._self_box = self_box
 
             enemy_box = Frame(info, bd=2, relief="groove", padx=8, pady=6)
-            enemy_box.grid(row=0, column=1, sticky="ew")
+            enemy_box.grid(row=0, column=1, sticky="nsew")
             enemy_box.grid_columnconfigure(0, weight=1)
-            ttk.Label(enemy_box, text="对方").grid(row=0, column=0, sticky="e")
-            ttk.Label(enemy_box, textvariable=self._enemy_var).grid(row=1, column=0, sticky="e")
-            ttk.Button(enemy_box, text="查看技能", command=self._show_enemy_skills).grid(row=2, column=0, sticky="e", pady=(6, 0))
+            enemy_box.grid_columnconfigure(1, weight=0)
+            ttk.Label(enemy_box, text="对方").grid(row=0, column=0, sticky="w")
+            ttk.Button(enemy_box, text="查看技能", command=self._show_enemy_skills).grid(row=0, column=1, sticky="e")
+            ttk.Label(enemy_box, textvariable=self._enemy_var).grid(row=1, column=0, columnspan=2, sticky="w")
+            ttk.Label(enemy_box, textvariable=self._enemy_equip_var).grid(row=2, column=0, columnspan=2, sticky="w", pady=(4, 0))
+            ttk.Label(enemy_box, textvariable=self._enemy_horse_var).grid(row=3, column=0, columnspan=2, sticky="w")
+            ttk.Label(enemy_box, textvariable=self._enemy_judge_var).grid(row=4, column=0, columnspan=2, sticky="w")
             self._enemy_box = enemy_box
 
             ttk.Label(page, textvariable=self._status_var).grid(row=1, column=0, sticky="w", pady=(10, 4))
@@ -156,7 +188,7 @@ def run_gui() -> None:
             cancel_btn.grid(row=0, column=1, padx=(8, 0))
             end_phase_btn = ttk.Button(controls, text="结束出牌阶段", command=self._end_play_phase)
             end_phase_btn.grid(row=0, column=2, padx=(8, 0))
-            skip_btn = ttk.Button(controls, text="跳过 AI 等待", command=self._skip_ai_wait)
+            skip_btn = ttk.Button(controls, text="跳过AI延时", command=self._skip_ai_wait)
             skip_btn.grid(row=0, column=3, padx=(8, 0))
             self._confirm_btn = confirm_btn
             self._cancel_btn = cancel_btn
@@ -181,8 +213,8 @@ def run_gui() -> None:
 
             footer = ttk.Frame(page)
             footer.grid(row=6, column=0, sticky="ew", pady=(10, 0))
-            ttk.Button(footer, text="返回开始", command=self._restart_game).grid(row=0, column=0)
-            ttk.Button(footer, text="退出", command=self.root.destroy).grid(row=0, column=1, padx=(8, 0))
+            ttk.Button(footer, text="返回主界面", command=self._restart_game).grid(row=0, column=0)
+            ttk.Button(footer, text="退出游戏", command=self.root.destroy).grid(row=0, column=1, padx=(8, 0))
             return page
 
         def _build_end_page(self, parent: Any) -> Any:
@@ -221,8 +253,14 @@ def run_gui() -> None:
             self._last_request_kind = req_kind
             human = snapshot.players[snapshot.human_index]
             enemy = snapshot.players[1 - snapshot.human_index]
-            self._self_var.set(self._format_player(human))
-            self._enemy_var.set(self._format_player(enemy))
+            self._self_var.set(self._format_player_base(human))
+            self._self_equip_var.set(self._format_player_equip(human))
+            self._self_horse_var.set(self._format_player_horse(human))
+            self._self_judge_var.set(self._format_player_judge(human))
+            self._enemy_var.set(self._format_player_base(enemy))
+            self._enemy_equip_var.set(self._format_player_equip(enemy))
+            self._enemy_horse_var.set(self._format_player_horse(enemy))
+            self._enemy_judge_var.set(self._format_player_judge(enemy))
             current_player = snapshot.current_player or "-"
             self._status_var.set(
                 "  ".join(
@@ -244,9 +282,9 @@ def run_gui() -> None:
             self._sync_skills(snapshot, human.name)
             self._sync_target_highlight(human.name, enemy.name)
 
-            if snapshot.winner is not None and self._current_page != "end":
+            if snapshot.winner is not None:
                 self._winner_var.set(f"对局结束，胜者：{snapshot.winner}")
-                self.show("end")
+                self._hint_var.set(self._winner_var.get())
 
             self.root.after(self.config.refresh_ms, self._tick)
 
@@ -299,6 +337,39 @@ def run_gui() -> None:
                 parts.append("判定[" + "、".join(judgment_area) + "]")
             return "  ".join(parts)
 
+        def _format_player_base(self, p: object) -> str:
+            ps = p
+            name = getattr(ps, "name", "")
+            general = getattr(ps, "general", None)
+            hp = getattr(ps, "hp", 0)
+            max_hp = getattr(ps, "max_hp", 0)
+            hand_count = getattr(ps, "hand_count", 0)
+            parts = [name]
+            if general:
+                parts.append(f"({general})")
+            parts.append(f"HP {hp}/{max_hp}")
+            parts.append(f"手牌 {hand_count}")
+            return "  ".join(parts)
+
+        def _format_player_equip(self, p: object) -> str:
+            ps = p
+            weapon = getattr(ps, "weapon", None)
+            armor = getattr(ps, "armor", None)
+            return f"武器 {weapon or '-'}  防具 {armor or '-'}"
+
+        def _format_player_horse(self, p: object) -> str:
+            ps = p
+            plus_horse = getattr(ps, "plus_horse", None)
+            minus_horse = getattr(ps, "minus_horse", None)
+            return f"+1 {plus_horse or '-'}  -1 {minus_horse or '-'}"
+
+        def _format_player_judge(self, p: object) -> str:
+            ps = p
+            judgment_area = getattr(ps, "judgment_area", ()) or ()
+            if not judgment_area:
+                return "判定区：-"
+            return "判定区：" + "、".join(judgment_area)
+
         def _format_hand_card(self, card: CardView) -> str:
             suit_map = {"heart": "♥", "diamond": "♦", "club": "♣", "spade": "♠"}
             symbol = suit_map.get(card.suit, card.suit)
@@ -307,7 +378,8 @@ def run_gui() -> None:
         def _sync_hand(self, cards: tuple[CardView, ...]) -> None:
             if self._hand_frame is None:
                 return
-            if cards == self._hand_cards and len(self._hand_buttons) == len(cards):
+            need_count = max(len(cards), HAND_MAX_COLS)
+            if cards == self._hand_cards and len(self._hand_buttons) == need_count:
                 self._refresh_hand_styles()
                 return
             for btn in self._hand_buttons:
@@ -316,9 +388,20 @@ def run_gui() -> None:
             self._hand_cards = cards
             self._selected_index = None
             self._multi_selected.clear()
-            for idx, card in enumerate(cards):
-                btn = ttk.Button(self._hand_frame, text=self._format_hand_card(card), command=lambda i=idx: self._select_card(i))
-                btn.grid(row=0, column=idx, padx=(0, 6), pady=2, sticky="w")
+            for idx in range(need_count):
+                row = idx // HAND_MAX_COLS
+                col = idx % HAND_MAX_COLS
+                if idx < len(cards):
+                    card = cards[idx]
+                    btn = ttk.Button(
+                        self._hand_frame,
+                        text=self._format_hand_card(card),
+                        width=HAND_SLOT_WIDTH,
+                        command=lambda i=idx: self._select_card(i),
+                    )
+                else:
+                    btn = ttk.Button(self._hand_frame, text="", width=HAND_SLOT_WIDTH, state="disabled", command=lambda: None)
+                btn.grid(row=row, column=col, padx=(0, 6), pady=2, sticky="w")
                 self._hand_buttons.append(btn)
             self._refresh_hand_styles()
 
@@ -437,6 +520,19 @@ def run_gui() -> None:
 
         def _sync_interactions(self, snapshot: Any, human_name: str) -> None:
             req = snapshot.pending_request
+            if snapshot.winner is not None:
+                for btn in self._hand_buttons:
+                    btn.configure(state="disabled")
+                if self._confirm_btn is not None:
+                    self._confirm_btn.configure(state="disabled")
+                if self._cancel_btn is not None:
+                    self._cancel_btn.configure(state="disabled")
+                if self._end_phase_btn is not None:
+                    self._end_phase_btn.configure(state="disabled")
+                for btn in self._active_skill_buttons:
+                    btn.configure(state="disabled")
+                self._sync_modal_request(req)
+                return
             can_play = req is not None and req.kind == "play" and snapshot.current_player == human_name
             can_discard = req is not None and req.kind == "discard_select"
             can_skill_card = req is not None and req.kind == "skill_card_select"
@@ -448,6 +544,14 @@ def run_gui() -> None:
                 self._cancel_btn.configure(state=("normal" if (can_play or can_discard or can_skill_card) else "disabled"))
             if self._end_phase_btn is not None:
                 self._end_phase_btn.configure(state=("normal" if can_play else "disabled"))
+            for idx, btn in enumerate(self._active_skill_buttons):
+                btn.configure(state=("normal" if can_play else "disabled"))
+            if self._skip_btn is not None:
+                show_skip = snapshot.current_player is not None and snapshot.current_player != human_name
+                if show_skip:
+                    self._skip_btn.grid()
+                else:
+                    self._skip_btn.grid_remove()
             self._sync_modal_request(req)
 
         def _sync_modal_request(self, req: Any) -> None:

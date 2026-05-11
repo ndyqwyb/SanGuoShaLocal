@@ -5,11 +5,17 @@ from dataclasses import dataclass, field
 from .cards import Card
 
 
+class Role:
+    LORD = "主公"
+    REBEL = "反贼"
+
+
 @dataclass
 class Player:
     name: str
     is_ai: bool = False
     general: str | None = None
+    role: str | None = None
     max_hp: int = 4
     hp: int = 4
     hand: list[Card] = field(default_factory=list)
@@ -56,6 +62,16 @@ class Player:
 
     def has_card(self, name: str) -> bool:
         return any(card.name == name for card in self.hand)
+
+    def is_ally_of(self, other: "Player") -> bool:
+        if self.role is None or other.role is None:
+            return False
+        return self.role == other.role
+
+    def is_enemy_of(self, other: "Player") -> bool:
+        if self.role is None or other.role is None:
+            return False
+        return self.role != other.role
 
     def remove_one(self, name: str) -> Card | None:
         for idx, card in enumerate(self.hand):

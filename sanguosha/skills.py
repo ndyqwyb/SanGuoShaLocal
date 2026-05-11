@@ -302,7 +302,7 @@ def ganglie_after_damage(
                 game.discard(source.hand.pop(idx))
             game.output(f"[结算] {source.name} 弃置2张牌响应【刚烈】。")
             continue
-        game.output(f"[结算] {source.name} 选择不弃牌，受到1点伤害。")
+        game.output(f"[结算] {source.name} 响应【刚烈】选择不弃牌，受到1点伤害。")
         game.deal_damage(owner, source, 1, reason="刚烈")
 
 
