@@ -15,6 +15,7 @@ class GuiConfig:
 
 HAND_MAX_COLS = 8
 HAND_SLOT_WIDTH = 14
+HAND_SLOT_MINSIZE_PX = 110
 
 
 def run_gui() -> None:
@@ -101,18 +102,31 @@ def run_gui() -> None:
 
         def _build_start_page(self, parent: Any) -> Any:
             page = ttk.Frame(parent)
-            title = ttk.Label(page, text="本地 1v1 三国杀", font=("TkDefaultFont", 16, "bold"))
-            title.grid(row=0, column=0, columnspan=2, pady=(0, 12))
-            ttk.Label(page, text="选择我方武将").grid(row=1, column=0, sticky="w", pady=(0, 6))
+            page.grid_columnconfigure(0, weight=1)
+            page.grid_rowconfigure(0, weight=1)
+            page.grid_rowconfigure(2, weight=1)
+
+            content = ttk.Frame(page)
+            content.grid(row=1, column=0, sticky="nsew")
+            content.grid_columnconfigure(0, weight=1, uniform="start_col")
+            content.grid_columnconfigure(1, weight=1, uniform="start_col")
+
+            title = ttk.Label(content, text="本地 1v1 三国杀", font=("TkDefaultFont", 16, "bold"))
+            title.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 16))
+
+            left = ttk.Frame(content)
+            left.grid(row=1, column=0, sticky="ne", padx=(0, 20))
+            ttk.Label(left, text="选择我方武将").grid(row=0, column=0, sticky="w", pady=(0, 6))
             general_names = [g.name for g in GENERAL_POOL]
-            general_combo = ttk.Combobox(page, textvariable=self._general_var, values=general_names, state="readonly")
-            general_combo.grid(row=2, column=0, sticky="ew", pady=(0, 12))
-            page.grid_columnconfigure(0, weight=0)
-            page.grid_columnconfigure(1, weight=1)
-            desc = ttk.Label(page, textvariable=self._general_desc_var, justify="left", wraplength=520)
-            desc.grid(row=1, column=1, rowspan=3, sticky="nw", padx=(20, 0))
-            btn = ttk.Button(page, text="开始对局", command=self._start_game)
-            btn.grid(row=3, column=0)
+            general_combo = ttk.Combobox(left, textvariable=self._general_var, values=general_names, state="readonly", width=18)
+            general_combo.grid(row=1, column=0, sticky="ew", pady=(0, 12))
+            btn = ttk.Button(left, text="开始对局", command=self._start_game)
+            btn.grid(row=2, column=0, sticky="w")
+
+            right = ttk.Frame(content)
+            right.grid(row=1, column=1, sticky="nw")
+            desc = ttk.Label(right, textvariable=self._general_desc_var, justify="left", wraplength=520)
+            desc.grid(row=0, column=0, sticky="nw")
             self._refresh_general_desc()
             general_combo.bind("<<ComboboxSelected>>", lambda _evt: self._refresh_general_desc())
             return page
@@ -150,8 +164,7 @@ def run_gui() -> None:
             ttk.Label(self_box, text="").grid(row=0, column=1, sticky="e")
             ttk.Label(self_box, textvariable=self._self_var).grid(row=1, column=0, columnspan=2, sticky="w")
             ttk.Label(self_box, textvariable=self._self_equip_var).grid(row=2, column=0, columnspan=2, sticky="w", pady=(4, 0))
-            ttk.Label(self_box, textvariable=self._self_horse_var).grid(row=3, column=0, columnspan=2, sticky="w")
-            ttk.Label(self_box, textvariable=self._self_judge_var).grid(row=4, column=0, columnspan=2, sticky="w")
+            ttk.Label(self_box, textvariable=self._self_judge_var).grid(row=3, column=0, columnspan=2, sticky="w")
             self._self_box = self_box
 
             enemy_box = Frame(info, bd=2, relief="groove", padx=8, pady=6)
@@ -162,8 +175,7 @@ def run_gui() -> None:
             ttk.Button(enemy_box, text="查看技能", command=self._show_enemy_skills).grid(row=0, column=1, sticky="e")
             ttk.Label(enemy_box, textvariable=self._enemy_var).grid(row=1, column=0, columnspan=2, sticky="w")
             ttk.Label(enemy_box, textvariable=self._enemy_equip_var).grid(row=2, column=0, columnspan=2, sticky="w", pady=(4, 0))
-            ttk.Label(enemy_box, textvariable=self._enemy_horse_var).grid(row=3, column=0, columnspan=2, sticky="w")
-            ttk.Label(enemy_box, textvariable=self._enemy_judge_var).grid(row=4, column=0, columnspan=2, sticky="w")
+            ttk.Label(enemy_box, textvariable=self._enemy_judge_var).grid(row=3, column=0, columnspan=2, sticky="w")
             self._enemy_box = enemy_box
 
             ttk.Label(page, textvariable=self._status_var).grid(row=1, column=0, sticky="w", pady=(10, 4))
@@ -178,6 +190,8 @@ def run_gui() -> None:
             ttk.Label(hand_area, text="你的手牌").grid(row=0, column=0, sticky="w")
             hand_frame = ttk.Frame(hand_area)
             hand_frame.grid(row=1, column=0, sticky="ew", pady=(6, 0))
+            for i in range(HAND_MAX_COLS):
+                hand_frame.grid_columnconfigure(i, minsize=HAND_SLOT_MINSIZE_PX)
             self._hand_frame = hand_frame
 
             controls = ttk.Frame(hand_area)
@@ -254,12 +268,10 @@ def run_gui() -> None:
             human = snapshot.players[snapshot.human_index]
             enemy = snapshot.players[1 - snapshot.human_index]
             self._self_var.set(self._format_player_base(human))
-            self._self_equip_var.set(self._format_player_equip(human))
-            self._self_horse_var.set(self._format_player_horse(human))
+            self._self_equip_var.set(self._format_player_equip_line(human))
             self._self_judge_var.set(self._format_player_judge(human))
             self._enemy_var.set(self._format_player_base(enemy))
-            self._enemy_equip_var.set(self._format_player_equip(enemy))
-            self._enemy_horse_var.set(self._format_player_horse(enemy))
+            self._enemy_equip_var.set(self._format_player_equip_line(enemy))
             self._enemy_judge_var.set(self._format_player_judge(enemy))
             current_player = snapshot.current_player or "-"
             self._status_var.set(
@@ -363,6 +375,9 @@ def run_gui() -> None:
             minus_horse = getattr(ps, "minus_horse", None)
             return f"+1 {plus_horse or '-'}  -1 {minus_horse or '-'}"
 
+        def _format_player_equip_line(self, p: object) -> str:
+            return f"{self._format_player_equip(p)}   {self._format_player_horse(p)}"
+
         def _format_player_judge(self, p: object) -> str:
             ps = p
             judgment_area = getattr(ps, "judgment_area", ()) or ()
@@ -378,8 +393,7 @@ def run_gui() -> None:
         def _sync_hand(self, cards: tuple[CardView, ...]) -> None:
             if self._hand_frame is None:
                 return
-            need_count = max(len(cards), HAND_MAX_COLS)
-            if cards == self._hand_cards and len(self._hand_buttons) == need_count:
+            if cards == self._hand_cards and len(self._hand_buttons) == len(cards):
                 self._refresh_hand_styles()
                 return
             for btn in self._hand_buttons:
@@ -388,19 +402,15 @@ def run_gui() -> None:
             self._hand_cards = cards
             self._selected_index = None
             self._multi_selected.clear()
-            for idx in range(need_count):
+            for idx, card in enumerate(cards):
                 row = idx // HAND_MAX_COLS
                 col = idx % HAND_MAX_COLS
-                if idx < len(cards):
-                    card = cards[idx]
-                    btn = ttk.Button(
-                        self._hand_frame,
-                        text=self._format_hand_card(card),
-                        width=HAND_SLOT_WIDTH,
-                        command=lambda i=idx: self._select_card(i),
-                    )
-                else:
-                    btn = ttk.Button(self._hand_frame, text="", width=HAND_SLOT_WIDTH, state="disabled", command=lambda: None)
+                btn = ttk.Button(
+                    self._hand_frame,
+                    text=self._format_hand_card(card),
+                    width=HAND_SLOT_WIDTH,
+                    command=lambda i=idx: self._select_card(i),
+                )
                 btn.grid(row=row, column=col, padx=(0, 6), pady=2, sticky="w")
                 self._hand_buttons.append(btn)
             self._refresh_hand_styles()

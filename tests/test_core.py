@@ -4,6 +4,7 @@ from sanguosha.cards import Card, CardName, build_deck, load_card_definitions
 from sanguosha.generals import GENERAL_POOL
 from sanguosha.game import AIStrategyConfig, Game
 from sanguosha.player import Player
+from sanguosha.skills import wusheng_active
 
 
 def make_game() -> Game:
@@ -624,6 +625,28 @@ def test_guicai_replacement_logs_new_judgment_card() -> None:
     game.draw_pile = [Card(CardName.SHA, suit="spade", rank=7)]
     game.run_judgment(b, reason_text="测试判定")
     assert any("判定牌被替换为" in m for m in messages)
+
+
+def test_qinggang_sword_ignores_bagua_on_wusheng_sha() -> None:
+    messages: list[str] = []
+
+    def _out(msg: str) -> None:
+        messages.append(msg)
+
+    game = Game(
+        Player(name="A", is_ai=True, general="关羽"),
+        Player(name="B", is_ai=True, general="关羽"),
+        seed=41,
+        output_func=_out,
+    )
+    game.setup()
+    a, b = game.player, game.enemy
+    a.weapon = Card(CardName.QINGGANG_SWORD)
+    a.hand = [Card(CardName.TAO, suit="heart", rank=9)]
+    b.armor = Card(CardName.BAGUA_SHIELD)
+    b.hand = []
+    wusheng_active(game, a, b)
+    assert not any("八卦阵" in m and "判定" in m for m in messages)
 
 
 def test_dying_asks_table_peach_before_after_damage_skill() -> None:

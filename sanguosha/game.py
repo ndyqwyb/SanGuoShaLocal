@@ -812,11 +812,16 @@ class Game:
         return any(card.name == card_name for card in target.judgment_area)
 
     def resolve_sha(self, actor: Player, target: Player) -> None:
-        if self._ask_for_shan(target, attacker=actor):
-            self.output(f"[响应] {target.name} 打出【闪】，抵消【杀】。")
-            return
-        self._deal_damage(actor, target, 1, reason="杀")
-        self.output(f"[结算] {target.name} 未打出【闪】，受到1点伤害（剩余{target.hp}）。")
+        old_ignore = actor.ignore_armor_on_sha
+        actor.ignore_armor_on_sha = actor.weapon is not None and actor.weapon.name == CardName.QINGGANG_SWORD
+        try:
+            if self._ask_for_shan(target, attacker=actor):
+                self.output(f"[响应] {target.name} 打出【闪】，抵消【杀】。")
+                return
+            self._deal_damage(actor, target, 1, reason="杀")
+            self.output(f"[结算] {target.name} 未打出【闪】，受到1点伤害（剩余{target.hp}）。")
+        finally:
+            actor.ignore_armor_on_sha = old_ignore
 
     def _resolve_duel(self, actor: Player, target: Player) -> None:
         current = target
