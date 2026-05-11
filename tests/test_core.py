@@ -502,3 +502,104 @@ def test_build_deck_is_random_when_seed_none() -> None:
     seq1 = [(c.name, c.suit, c.rank) for c in deck1]
     seq2 = [(c.name, c.suit, c.rank) for c in deck2]
     assert seq1 != seq2
+
+
+def test_kurou_loses_hp_and_draws_without_after_damage_trigger() -> None:
+    triggered = {"after_damage": False}
+
+    def _after_damage(__game: Game, __owner: Player, **__: object) -> None:
+        triggered["after_damage"] = True
+
+    game = Game(
+        Player(name="A", is_ai=False, general="黄盖"),
+        Player(name="B", is_ai=True, general="关羽"),
+        seed=2,
+        input_func=lambda _: "n",
+        output_func=lambda _: None,
+    )
+    game.setup()
+    a, b = game.player, game.enemy
+    a.hand = []
+    game.draw_pile = [Card(CardName.SHA), Card(CardName.TAO)]
+    game.register_passive_skill("after_damage", a, "dummy", _after_damage)
+    res = game._use_active_skill(a, b, 0)
+    assert res.ok is True
+    assert a.hp == a.max_hp - 1
+    assert len(a.hand) == 2
+    assert triggered["after_damage"] is False
+
+
+def test_fanjian_target_chooses_suit_and_takes_damage_on_mismatch() -> None:
+    answers = iter(["0"])
+    game = Game(
+        Player(name="A", is_ai=True, general="周瑜"),
+        Player(name="B", is_ai=False, general="关羽"),
+        seed=3,
+        input_func=lambda _: next(answers),
+        output_func=lambda _: None,
+    )
+    game.setup()
+    a, b = game.player, game.enemy
+    a.hand = [Card(CardName.SHA, suit="heart", rank=9)]
+    b.hand = []
+    before = b.hp
+    res = game._use_active_skill(a, b, 0)
+    assert res.ok is True
+    assert b.hp == before - 1
+    assert a.fanjian_used_this_turn is True
+
+
+def test_ganglie_judges_and_forces_source_damage_when_refuse_discard() -> None:
+    answers = iter(["y", "n"])
+    game = Game(
+        Player(name="A", is_ai=False, general="夏侯惇"),
+        Player(name="B", is_ai=False, general="关羽"),
+        seed=4,
+        input_func=lambda _: next(answers),
+        output_func=lambda _: None,
+    )
+    game.setup()
+    a, b = game.player, game.enemy
+    b.hand = [Card(CardName.SHA), Card(CardName.SHA)]
+    game.draw_pile = [Card(CardName.SHA, suit="spade", rank=7)]
+    before = b.hp
+    game.deal_damage(b, a, 1, reason="test")
+    assert b.hp == before - 1
+
+
+def test_guicai_replaces_judgment_card() -> None:
+    answers = iter(["y", "0"])
+    game = Game(
+        Player(name="A", is_ai=False, general="司马懿"),
+        Player(name="B", is_ai=True, general="关羽"),
+        seed=5,
+        input_func=lambda _: next(answers),
+        output_func=lambda _: None,
+    )
+    game.setup()
+    a, b = game.player, game.enemy
+    a.hand = [Card(CardName.SHA, suit="heart", rank=9)]
+    game.draw_pile = [Card(CardName.SHA, suit="spade", rank=7)]
+    res = game.run_judgment(b, reason_text="测试判定")
+    assert isinstance(res, Card)
+    assert res.suit == "heart"
+    assert any(c.suit == "spade" for c in game.discard_pile)
+
+
+def test_tiandu_can_take_judgment_card() -> None:
+    answers = iter(["y"])
+    game = Game(
+        Player(name="A", is_ai=False, general="郭嘉"),
+        Player(name="B", is_ai=True, general="关羽"),
+        seed=6,
+        input_func=lambda _: next(answers),
+        output_func=lambda _: None,
+    )
+    game.setup()
+    a = game.player
+    a.hand = []
+    game.draw_pile = [Card(CardName.SHA, suit="spade", rank=7)]
+    res = game.run_judgment(a, reason_text="天妒")
+    assert isinstance(res, Card)
+    assert len(a.hand) == 1
+    assert all(c is not res for c in game.discard_pile)

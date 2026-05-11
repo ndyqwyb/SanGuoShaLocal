@@ -50,6 +50,7 @@ def run_gui() -> None:
             self._self_box: Any | None = None
             self._enemy_box: Any | None = None
             self._active_skill_buttons: list[Any] = []
+            self._active_skill_frame: Any | None = None
             self._passive_skill_var = StringVar(value="无")
             self._active_skill_desc_var = StringVar(value="")
             self._active_modal: Any | None = None
@@ -147,16 +148,8 @@ def run_gui() -> None:
             ttk.Label(skill_area, text="主动技能").grid(row=0, column=0, sticky="w")
             active_skill_frame = ttk.Frame(skill_area)
             active_skill_frame.grid(row=0, column=1, sticky="w")
+            self._active_skill_frame = active_skill_frame
             self._active_skill_buttons = []
-            for i in range(3):
-                btn = ttk.Button(
-                    active_skill_frame,
-                    text=f"技能{i + 1}",
-                    command=lambda idx=i: self._trigger_active_skill(idx),
-                )
-                btn.grid(row=0, column=i, padx=(0, 6))
-                btn.grid_remove()
-                self._active_skill_buttons.append(btn)
             ttk.Label(skill_area, text="被动技能").grid(row=1, column=0, sticky="w", pady=(6, 0))
             ttk.Label(skill_area, textvariable=self._passive_skill_var).grid(row=1, column=1, sticky="w", pady=(6, 0))
 
@@ -553,12 +546,23 @@ def run_gui() -> None:
                 and snapshot.pending_request.kind == "play"
                 and snapshot.current_player == human_name
             )
+            if self._active_skill_frame is None:
+                return
+            need = len(human.active_skills)
+            while len(self._active_skill_buttons) < need:
+                idx = len(self._active_skill_buttons)
+                btn = ttk.Button(
+                    self._active_skill_frame,
+                    text=f"技能{idx + 1}",
+                    command=lambda i=idx: self._trigger_active_skill(i),
+                )
+                btn.grid(row=0, column=idx, padx=(0, 6))
+                self._active_skill_buttons.append(btn)
+            while len(self._active_skill_buttons) > need:
+                btn = self._active_skill_buttons.pop()
+                btn.destroy()
             for idx, btn in enumerate(self._active_skill_buttons):
-                if idx < len(human.active_skills):
-                    btn.configure(text=human.active_skills[idx], state=("normal" if can_play else "disabled"))
-                    btn.grid()
-                else:
-                    btn.grid_remove()
+                btn.configure(text=human.active_skills[idx], state=("normal" if can_play else "disabled"))
             self._passive_skill_var.set("、".join(human.passive_skills) if human.passive_skills else "无")
             desc_lines: list[str] = []
             if human.general:
