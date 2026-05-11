@@ -7,7 +7,7 @@ from typing import Callable, Iterable
 from .cards import Card, CardConfig, CardDefinition, CardName, build_deck, load_card_definitions
 from .generals import GENERAL_POOL, GeneralDefinition, get_general_by_name
 from .player import Player
-from .skills import jizhi_after_use_trick, qingnang_active, wusheng_active
+from .skills import ACTIVE_SKILL_HANDLERS, PASSIVE_SKILL_HANDLERS
 
 
 @dataclass
@@ -16,7 +16,7 @@ class ActionResult:
     message: str
 
 
-PassiveSkillHandler = Callable[..., None]
+PassiveSkillHandler = Callable[..., object | None]
 ActiveSkillHandler = Callable[["Game", Player, Player], ActionResult]
 CardEffectHandler = Callable[[Player, Player, Card, CardDefinition], ActionResult]
 CardValidator = Callable[[Player, Player, Card, CardDefinition], ActionResult | None]
@@ -144,6 +144,71 @@ class Game:
     def discard(self, card: Card) -> None:
         self.discard_pile.append(card)
 
+    def _format_card_short(self, card: Card) -> str:
+        suit_map = {"heart": "♥", "diamond": "♦", "club": "♣", "spade": "♠"}
+        symbol = suit_map.get(card.suit, card.suit)
+        return f"{card.name} {symbol}{card.rank}"
+
+    def lose_hp(self, victim: Player, amount: int = 1) -> None:
+        victim.hp -= amount
+        self._check_death(victim, self.other_player(victim))
+
+    def deal_damage(
+        self,
+        source: Player | None,
+        victim: Player,
+        amount: int = 1,
+        *,
+        card: Card | None = None,
+        reason: str = "",
+    ) -> None:
+        self._deal_damage(source, victim, amount, card=card, reason=reason)
+
+    def run_judgment(self, judge_owner: Player, *, reason_card: Card | None = None, reason_text: str = "") -> Card | None:
+        return self._run_judgment(judge_owner, reason_card=reason_card, reason_text=reason_text)
+
+    def _deal_damage(
+        self,
+        source: Player | None,
+        victim: Player,
+        amount: int,
+        *,
+        card: Card | None = None,
+        reason: str = "",
+    ) -> None:
+        victim.take_damage(amount)
+        self._trigger_event("after_damage", victim=victim, source=source, amount=amount, card=card, reason=reason)
+        if source is not None:
+            self._check_death(victim, source)
+        else:
+            self._check_death(victim, self.other_player(victim))
+
+    def _run_judgment(self, judge_owner: Player, *, reason_card: Card | None = None, reason_text: str = "") -> Card | None:
+        judge = self.draw_judge_card()
+        if judge is None:
+            return None
+        self.output(f"[判定] {judge_owner.name} 判定牌：{self._format_card_short(judge)}")
+        final = judge
+        for owner, _, handler in self.passive_skill_registry.get("before_judge", []):
+            if not owner.alive:
+                continue
+            replaced = handler(self, owner, judge_owner=judge_owner, judge_card=final, reason_card=reason_card, reason_text=reason_text)
+            if isinstance(replaced, Card):
+                owner.hand.append(final)
+                self.output(f"[结算] {owner.name} 获得判定牌：{self._format_card_short(final)}")
+                final = replaced
+        taken = False
+        for owner, _, handler in self.passive_skill_registry.get("after_judge", []):
+            if not owner.alive:
+                continue
+            res = handler(self, owner, judge_owner=judge_owner, judge_card=final, reason_card=reason_card, reason_text=reason_text)
+            if res is True and owner is judge_owner:
+                owner.hand.append(final)
+                taken = True
+        if not taken:
+            self.discard(final)
+        return final
+
     def run(self, max_rounds: int = 200) -> Player | None:
         self.setup()
         rounds = 0
@@ -165,8 +230,15 @@ class Game:
         if actor.skip_draw_phase:
             self.output(f"{actor.name} 受【兵粮寸断】影响，跳过摸牌阶段。")
         else:
-            self.draw_cards(actor, 2)
-            self.output(f"{actor.name} 摸2张，当前手牌 {len(actor.hand)}")
+            bonus = 0
+            for owner, _, handler in self.passive_skill_registry.get("draw_phase", []):
+                if owner is actor and owner.alive:
+                    res = handler(self, owner, actor=actor)
+                    if isinstance(res, int):
+                        bonus += res
+            draw_n = 2 + max(0, bonus)
+            self.draw_cards(actor, draw_n)
+            self.output(f"{actor.name} 摸{draw_n}张，当前手牌 {len(actor.hand)}")
         if actor.skip_play_phase:
             self.output(f"{actor.name} 受【乐不思蜀】影响，跳过出牌阶段。")
         else:
@@ -189,21 +261,19 @@ class Game:
                 self.output(f"[结算] {actor.name} 判定区的【{delayed.name}】被无懈可击抵消。")
                 self.discard(delayed)
                 continue
-            judge = self.draw_judge_card()
+            judge = self._run_judgment(actor, reason_card=delayed, reason_text=delayed.name)
             if judge is None:
                 self.discard(delayed)
                 continue
-            self.output(f"{actor.name} 判定【{delayed.name}】：{judge.suit} {judge.rank}")
-            self.discard(judge)
+            self.output(f"{actor.name} 判定【{delayed.name}】：{self._format_card_short(judge)}")
             if delayed.name == CardName.INDULGENCE and judge.suit != "heart":
                 actor.skip_play_phase = True
             elif delayed.name == CardName.SUPPLY_SHORTAGE and judge.suit != "club":
                 actor.skip_draw_phase = True
             elif delayed.name == CardName.LIGHTNING:
                 if judge.suit == "spade" and 2 <= judge.rank <= 9:
-                    actor.take_damage(3)
+                    self._deal_damage(None, actor, 3, card=delayed, reason="闪电")
                     self.output(f"{actor.name} 受到【闪电】3点伤害（剩余{actor.hp}）。")
-                    self._check_death(actor, self.other_player(actor))
                 else:
                     next_player = self.other_player(actor)
                     if not self._has_delayed(next_player, CardName.LIGHTNING):
@@ -268,6 +338,15 @@ class Game:
                 best_score = score
                 best_idx = idx
         return best_idx
+
+    def _choose_ai_discard_indexes(self, player: Player, need_count: int) -> list[int]:
+        chosen: list[int] = []
+        for _ in range(need_count):
+            idx = self._choose_ai_discard_index(player)
+            while idx in chosen and len(chosen) < len(player.hand):
+                idx = (idx + 1) % len(player.hand)
+            chosen.append(idx)
+        return sorted(set(chosen))[:need_count]
 
     def _distance(self, actor: Player, target: Player) -> int:
         base = 1
@@ -535,9 +614,8 @@ class Game:
             return ActionResult(True, f"{actor.name} 的【{card.name}】被无懈可击抵消。")
         if self._ask_for_sha(target, duel=False, prompt=f"{target.name} 是否打出【杀】响应【南蛮入侵】？(y/n): "):
             return ActionResult(True, f"{target.name} 打出【杀】响应【南蛮入侵】。")
-        target.take_damage(1)
+        self._deal_damage(actor, target, 1, card=card, reason="南蛮入侵")
         self.output(f"{target.name} 未出【杀】，受到1点伤害（剩余{target.hp}）。")
-        self._check_death(target, actor)
         return ActionResult(True, f"{actor.name} 使用【南蛮入侵】。")
 
     def _effect_archer_attack(self, actor: Player, target: Player, card: Card, __: CardDefinition) -> ActionResult:
@@ -546,9 +624,8 @@ class Game:
             return ActionResult(True, f"{actor.name} 的【{card.name}】被无懈可击抵消。")
         if self._ask_for_shan(target, prompt=f"{target.name} 是否打出【闪】响应【万箭齐发】？(y/n): ", attacker=actor):
             return ActionResult(True, f"{target.name} 打出【闪】响应【万箭齐发】。")
-        target.take_damage(1)
+        self._deal_damage(actor, target, 1, card=card, reason="万箭齐发")
         self.output(f"{target.name} 未出【闪】，受到1点伤害（剩余{target.hp}）。")
-        self._check_death(target, actor)
         return ActionResult(True, f"{actor.name} 使用【万箭齐发】。")
 
     def _effect_peach_garden(self, actor: Player, target: Player, card: Card, __: CardDefinition) -> ActionResult:
@@ -632,9 +709,8 @@ class Game:
 
     def _effect_direct_damage_1(self, actor: Player, target: Player, card: Card, __: CardDefinition) -> ActionResult:
         self.discard(card)
-        target.take_damage(1)
+        self._deal_damage(actor, target, 1, card=card, reason=card.name)
         self.output(f"{target.name} 受到【{card.name}】1点伤害（剩余{target.hp}）。")
-        self._check_death(target, actor)
         return ActionResult(True, f"{actor.name} 使用【{card.name}】。")
 
     def _place_delayed(self, target: Player, card: Card) -> None:
@@ -652,9 +728,8 @@ class Game:
         if self._ask_for_shan(target, attacker=actor):
             self.output(f"[响应] {target.name} 打出【闪】，抵消【杀】。")
             return
-        target.take_damage(1)
+        self._deal_damage(actor, target, 1, reason="杀")
         self.output(f"[结算] {target.name} 未打出【闪】，受到1点伤害（剩余{target.hp}）。")
-        self._check_death(target, actor)
 
     def _resolve_duel(self, actor: Player, target: Player) -> None:
         current = target
@@ -665,9 +740,8 @@ class Game:
                 self.output(f"[响应] {current.name} 打出【杀】响应决斗。")
                 current, other = other, current
                 continue
-            current.take_damage(1)
+            self._deal_damage(other, current, 1, reason="决斗")
             self.output(f"[结算] {current.name} 未能打出【杀】，决斗伤害1（剩余{current.hp}）。")
-            self._check_death(current, other)
             return
 
     def _pop_target_asset(self, target: Player, zone: str) -> tuple[str, Card] | None:
@@ -783,10 +857,9 @@ class Game:
     def _ask_for_shan(self, p: Player, *, prompt: str | None = None, attacker: Player | None = None) -> bool:
         if p.armor is not None and p.armor.name == CardName.BAGUA_SHIELD:
             if attacker is None or not attacker.ignore_armor_on_sha:
-                judge = self.draw_judge_card()
+                judge = self._run_judgment(p, reason_card=p.armor, reason_text="八卦阵")
                 if judge is not None:
-                    self.output(f"[响应] {p.name} 的【八卦阵】判定：{judge.suit} {judge.rank}")
-                    self.discard(judge)
+                    self.output(f"[响应] {p.name} 的【八卦阵】判定：{self._format_card_short(judge)}")
                     if judge.is_red:
                         self.output(f"[响应] {p.name} 通过【八卦阵】视为打出【闪】。")
                         return True
@@ -952,9 +1025,9 @@ class Game:
             for skill in general.skills:
                 if skill.name == "咆哮":
                     p.extra_attack_limit = 99
-                elif skill.name == "青囊":
-                    self.register_active_skill(p, skill.name, qingnang_active)
-                elif skill.name == "集智":
-                    self.register_passive_skill("after_use_trick", p, skill.name, jizhi_after_use_trick)
-                elif skill.name == "武圣":
-                    self.register_active_skill(p, skill.name, wusheng_active)
+                elif skill.kind == "active" and skill.name in ACTIVE_SKILL_HANDLERS:
+                    handler = ACTIVE_SKILL_HANDLERS[skill.name]
+                    self.register_active_skill(p, skill.name, handler)
+                elif skill.kind == "passive" and skill.name in PASSIVE_SKILL_HANDLERS:
+                    event, handler = PASSIVE_SKILL_HANDLERS[skill.name]
+                    self.register_passive_skill(event, p, skill.name, handler)

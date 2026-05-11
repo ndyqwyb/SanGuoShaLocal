@@ -25,6 +25,7 @@ class Player:
     skip_draw_phase: bool = False
     ignore_armor_on_sha: bool = False
     qingnang_used_this_turn: bool = False
+    fanjian_used_this_turn: bool = False
 
     def reset_for_turn(self) -> None:
         self.sha_used_this_turn = 0
@@ -32,6 +33,7 @@ class Player:
         self.skip_draw_phase = False
         self.ignore_armor_on_sha = False
         self.qingnang_used_this_turn = False
+        self.fanjian_used_this_turn = False
 
     def attack_limit(self) -> int:
         return 1 + self.extra_attack_limit
