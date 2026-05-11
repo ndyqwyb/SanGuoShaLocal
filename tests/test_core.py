@@ -463,7 +463,7 @@ def test_delayed_tricks_indulgence_supply_and_lightning() -> None:
 
 def test_delayed_tricks_do_not_ask_nullify_on_play_but_ask_in_judgment() -> None:
     prompts: list[str] = []
-    answers = iter(["y", "n", "y", "n", "y"])
+    answers = iter(["y", "n", "y", "n", "y", "n"])
 
     def _input(prompt: str) -> str:
         prompts.append(prompt)
@@ -477,8 +477,8 @@ def test_delayed_tricks_do_not_ask_nullify_on_play_but_ask_in_judgment() -> None
         output_func=lambda _: None,
     )
     a, b = game.player, game.enemy
-    a.hand = [Card(CardName.INDULGENCE), Card(CardName.SUPPLY_SHORTAGE), Card(CardName.LIGHTNING), Card(CardName.NULLIFY)]
-    b.hand = [Card(CardName.NULLIFY), Card(CardName.NULLIFY)]
+    a.hand = [Card(CardName.INDULGENCE), Card(CardName.SUPPLY_SHORTAGE), Card(CardName.LIGHTNING)]
+    b.hand = [Card(CardName.NULLIFY), Card(CardName.NULLIFY), Card(CardName.NULLIFY)]
 
     game.play_card(a, b, 0)  # 乐不思蜀
     game.play_card(a, b, 0)  # 兵粮寸断
@@ -514,6 +514,58 @@ def test_judgment_log_contains_card_name() -> None:
     game.draw_pile = [Card(CardName.SHA, suit="spade", rank=7)]
     game._resolve_judgment_area(b)
     assert any("判定牌" in m and "杀" in m for m in messages)
+
+
+def test_nullify_chain_allows_counter_nullify() -> None:
+    prompts: list[str] = []
+    answers = iter(["n", "y", "y"])
+
+    def _input(prompt: str) -> str:
+        prompts.append(prompt)
+        return next(answers)
+
+    game = Game(
+        Player(name="A", is_ai=False, general="关羽"),
+        Player(name="B", is_ai=False, general="关羽"),
+        seed=12,
+        input_func=_input,
+        output_func=lambda _: None,
+    )
+    a, b = game.player, game.enemy
+    a.hand = [Card(CardName.EX_NIHILO), Card(CardName.NULLIFY)]
+    b.hand = [Card(CardName.NULLIFY)]
+    game.draw_pile = [Card(CardName.SHA), Card(CardName.SHA)]
+    game.play_card(a, b, 0)
+    assert len(a.hand) == 2
+    assert len(game.discard_pile) == 3
+    assert any("无懈可击" in p for p in prompts)
+
+
+def test_dying_asks_table_peach_before_after_damage_skill() -> None:
+    prompts: list[str] = []
+    answers = iter(["y", "n"])
+
+    def _input(prompt: str) -> str:
+        prompts.append(prompt)
+        return next(answers)
+
+    game = Game(
+        Player(name="A", is_ai=False, general="郭嘉"),
+        Player(name="B", is_ai=False, general="关羽"),
+        seed=13,
+        input_func=_input,
+        output_func=lambda _: None,
+    )
+    game.setup()
+    a, b = game.player, game.enemy
+    game.players = [a, b]
+    a.hp = 1
+    a.hand = []
+    b.hand = [Card(CardName.TAO)]
+    game.deal_damage(b, a, 1, reason="test")
+    assert a.hp == 1
+    assert "濒死求桃" in prompts[0]
+    assert "遗计" in prompts[1]
 
 
 def test_build_deck_is_random_when_seed_none() -> None:
