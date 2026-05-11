@@ -234,6 +234,7 @@ class Game:
                 owner.hand.append(final)
                 self.output(f"[结算] {owner.name} 获得判定牌：{self._format_card_short(final)}")
                 final = replaced
+                self.output(f"[判定] {judge_owner.name} 判定牌被替换为：{self._format_card_short(final)}")
         taken = False
         for owner, _, handler in self.passive_skill_registry.get("after_judge", []):
             if not owner.alive:
@@ -503,6 +504,7 @@ class Game:
         if hand_index < 0 or hand_index >= len(actor.hand):
             return ActionResult(False, "索引越界。")
         card = actor.hand[hand_index]
+        target = self._resolve_effective_target(actor, target, card.name)
         definition = self.card_definitions.get(card.name)
         if definition is None:
             return ActionResult(False, f"未知卡牌：{card.name}")
@@ -523,6 +525,24 @@ class Game:
         if result.ok and definition.category == "trick":
             self._trigger_event("after_use_trick", actor=actor, target=target, card=card)
         return result
+
+    def _resolve_effective_target(self, actor: Player, target: Player, card_name: str) -> Player:
+        self_target_cards = {
+            CardName.TAO,
+            CardName.ZHUGE_CROSSBOW,
+            CardName.QINGGANG_SWORD,
+            CardName.BAGUA_SHIELD,
+            CardName.CHITU,
+            CardName.ZIXING,
+            CardName.DILU,
+            CardName.EX_NIHILO,
+            CardName.PEACH_GARDEN,
+            CardName.HARVEST,
+            CardName.LIGHTNING,
+        }
+        if card_name in self_target_cards:
+            return actor
+        return target
 
     def _validate_card_target(self, actor: Player, target: Player, card: Card) -> ActionResult | None:
         if card.name == CardName.SHA and not self._in_attack_range(actor, target):

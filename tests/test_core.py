@@ -561,6 +561,53 @@ def test_nullify_chain_allows_counter_nullify() -> None:
     assert any("无懈可击" in p for p in prompts)
 
 
+def test_ex_nihilo_nullify_prompt_targets_self() -> None:
+    prompts: list[str] = []
+    answers = iter(["n"])
+
+    def _input(prompt: str) -> str:
+        prompts.append(prompt)
+        return next(answers)
+
+    game = Game(
+        Player(name="玩家", is_ai=False),
+        Player(name="电脑", is_ai=False),
+        seed=22,
+        input_func=_input,
+        output_func=lambda _: None,
+    )
+    a, b = game.player, game.enemy
+    a.hand = [Card(CardName.EX_NIHILO)]
+    b.hand = [Card(CardName.NULLIFY)]
+    game.play_card(a, b, 0)
+    assert any("无中生有" in p and "对 玩家 生效" in p for p in prompts)
+
+
+def test_guicai_replacement_logs_new_judgment_card() -> None:
+    messages: list[str] = []
+    answers = iter(["y", "0", "n"])
+
+    def _input(prompt: str) -> str:
+        return next(answers)
+
+    def _out(msg: str) -> None:
+        messages.append(msg)
+
+    game = Game(
+        Player(name="A", is_ai=False, general="司马懿"),
+        Player(name="B", is_ai=False, general="郭嘉"),
+        seed=23,
+        input_func=_input,
+        output_func=_out,
+    )
+    game.setup()
+    a, b = game.player, game.enemy
+    a.hand = [Card(CardName.SHA, suit="heart", rank=9)]
+    game.draw_pile = [Card(CardName.SHA, suit="spade", rank=7)]
+    game.run_judgment(b, reason_text="测试判定")
+    assert any("判定牌被替换为" in m for m in messages)
+
+
 def test_dying_asks_table_peach_before_after_damage_skill() -> None:
     prompts: list[str] = []
     answers = iter(["y", "n"])

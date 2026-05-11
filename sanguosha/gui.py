@@ -22,8 +22,8 @@ def run_gui() -> None:
             self.root = root
             self.config = config or GuiConfig()
             self.engine = LocalVisualEngine()
-            self.root.minsize(980, 720)
-            self.root.geometry("980x720")
+            self.root.minsize(860, 620)
+            self.root.resizable(True, True)
             self._style = ttk.Style()
             self._style.configure("Selected.TButton", font=("TkDefaultFont", 10, "bold"))
             self._frame = ttk.Frame(root, padding=16)
@@ -112,7 +112,8 @@ def run_gui() -> None:
 
             page = ttk.Frame(parent)
             page.grid_columnconfigure(0, weight=1)
-            page.grid_rowconfigure(4, weight=1)
+            page.grid_rowconfigure(3, weight=0)
+            page.grid_rowconfigure(5, weight=1)
 
             info = ttk.Frame(page)
             info.grid(row=0, column=0, sticky="ew")
@@ -181,8 +182,8 @@ def run_gui() -> None:
 
             footer = ttk.Frame(page)
             footer.grid(row=6, column=0, sticky="ew", pady=(10, 0))
-            ttk.Button(footer, text="返回开始", command=self._restart_game).grid(row=0, column=0)
-            ttk.Button(footer, text="退出", command=self.root.destroy).grid(row=0, column=1, padx=(8, 0))
+            ttk.Button(footer, text="返回主界面", command=self._restart_game).grid(row=0, column=0)
+            ttk.Button(footer, text="退出游戏", command=self.root.destroy).grid(row=0, column=1, padx=(8, 0))
             return page
 
         def _build_end_page(self, parent: Any) -> Any:
@@ -244,9 +245,9 @@ def run_gui() -> None:
             self._sync_skills(snapshot, human.name)
             self._sync_target_highlight(human.name, enemy.name)
 
-            if snapshot.winner is not None and self._current_page != "end":
+            if snapshot.winner is not None:
                 self._winner_var.set(f"对局结束，胜者：{snapshot.winner}")
-                self.show("end")
+                self._hint_var.set(self._winner_var.get())
 
             self.root.after(self.config.refresh_ms, self._tick)
 
@@ -437,6 +438,19 @@ def run_gui() -> None:
 
         def _sync_interactions(self, snapshot: Any, human_name: str) -> None:
             req = snapshot.pending_request
+            if snapshot.winner is not None:
+                for btn in self._hand_buttons:
+                    btn.configure(state="disabled")
+                if self._confirm_btn is not None:
+                    self._confirm_btn.configure(state="disabled")
+                if self._cancel_btn is not None:
+                    self._cancel_btn.configure(state="disabled")
+                if self._end_phase_btn is not None:
+                    self._end_phase_btn.configure(state="disabled")
+                for btn in self._active_skill_buttons:
+                    btn.configure(state="disabled")
+                self._sync_modal_request(req)
+                return
             can_play = req is not None and req.kind == "play" and snapshot.current_player == human_name
             can_discard = req is not None and req.kind == "discard_select"
             can_skill_card = req is not None and req.kind == "skill_card_select"
@@ -448,6 +462,8 @@ def run_gui() -> None:
                 self._cancel_btn.configure(state=("normal" if (can_play or can_discard or can_skill_card) else "disabled"))
             if self._end_phase_btn is not None:
                 self._end_phase_btn.configure(state=("normal" if can_play else "disabled"))
+            for idx, btn in enumerate(self._active_skill_buttons):
+                btn.configure(state=("normal" if can_play else "disabled"))
             self._sync_modal_request(req)
 
         def _sync_modal_request(self, req: Any) -> None:
