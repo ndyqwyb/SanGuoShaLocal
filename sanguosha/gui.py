@@ -13,6 +13,9 @@ class GuiConfig:
     refresh_ms: int = 100
 
 
+HAND_MAX_COLS = 8
+
+
 def run_gui() -> None:
     from tkinter import StringVar, Tk, ttk
     from tkinter.scrolledtext import ScrolledText
@@ -24,6 +27,7 @@ def run_gui() -> None:
             self.engine = LocalVisualEngine()
             self.root.minsize(860, 620)
             self.root.resizable(True, True)
+            self.root.geometry("860x620")
             self._style = ttk.Style()
             self._style.configure("Selected.TButton", font=("TkDefaultFont", 10, "bold"))
             self._frame = ttk.Frame(root, padding=16)
@@ -35,7 +39,11 @@ def run_gui() -> None:
             self._current_page: str | None = None
             self._winner_var = StringVar(value="")
             self._self_var = StringVar(value="")
+            self._self_equip_var = StringVar(value="")
+            self._self_horse_var = StringVar(value="")
             self._enemy_var = StringVar(value="")
+            self._enemy_equip_var = StringVar(value="")
+            self._enemy_horse_var = StringVar(value="")
             self._status_var = StringVar(value="")
             self._hint_var = StringVar(value="")
             self._general_var = StringVar(value=GENERAL_POOL[0].name if GENERAL_POOL else "")
@@ -117,22 +125,29 @@ def run_gui() -> None:
 
             info = ttk.Frame(page)
             info.grid(row=0, column=0, sticky="ew")
-            info.grid_columnconfigure(0, weight=1)
-            info.grid_columnconfigure(1, weight=1)
+            info.grid_columnconfigure(0, weight=1, uniform="player_box")
+            info.grid_columnconfigure(1, weight=1, uniform="player_box")
 
             self_box = Frame(info, bd=2, relief="groove", padx=8, pady=6)
-            self_box.grid(row=0, column=0, sticky="ew", padx=(0, 8))
+            self_box.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
             self_box.grid_columnconfigure(0, weight=1)
+            self_box.grid_columnconfigure(1, weight=0)
             ttk.Label(self_box, text="我方").grid(row=0, column=0, sticky="w")
-            ttk.Label(self_box, textvariable=self._self_var).grid(row=1, column=0, sticky="w")
+            ttk.Label(self_box, text="").grid(row=0, column=1, sticky="e")
+            ttk.Label(self_box, textvariable=self._self_var).grid(row=1, column=0, columnspan=2, sticky="w")
+            ttk.Label(self_box, textvariable=self._self_equip_var).grid(row=2, column=0, columnspan=2, sticky="w", pady=(4, 0))
+            ttk.Label(self_box, textvariable=self._self_horse_var).grid(row=3, column=0, columnspan=2, sticky="w")
             self._self_box = self_box
 
             enemy_box = Frame(info, bd=2, relief="groove", padx=8, pady=6)
-            enemy_box.grid(row=0, column=1, sticky="ew")
+            enemy_box.grid(row=0, column=1, sticky="nsew")
             enemy_box.grid_columnconfigure(0, weight=1)
-            ttk.Label(enemy_box, text="对方").grid(row=0, column=0, sticky="e")
-            ttk.Label(enemy_box, textvariable=self._enemy_var).grid(row=1, column=0, sticky="e")
-            ttk.Button(enemy_box, text="查看技能", command=self._show_enemy_skills).grid(row=2, column=0, sticky="e", pady=(6, 0))
+            enemy_box.grid_columnconfigure(1, weight=0)
+            ttk.Label(enemy_box, text="对方").grid(row=0, column=0, sticky="w")
+            ttk.Button(enemy_box, text="查看技能", command=self._show_enemy_skills).grid(row=0, column=1, sticky="e")
+            ttk.Label(enemy_box, textvariable=self._enemy_var).grid(row=1, column=0, columnspan=2, sticky="w")
+            ttk.Label(enemy_box, textvariable=self._enemy_equip_var).grid(row=2, column=0, columnspan=2, sticky="w", pady=(4, 0))
+            ttk.Label(enemy_box, textvariable=self._enemy_horse_var).grid(row=3, column=0, columnspan=2, sticky="w")
             self._enemy_box = enemy_box
 
             ttk.Label(page, textvariable=self._status_var).grid(row=1, column=0, sticky="w", pady=(10, 4))
@@ -157,7 +172,7 @@ def run_gui() -> None:
             cancel_btn.grid(row=0, column=1, padx=(8, 0))
             end_phase_btn = ttk.Button(controls, text="结束出牌阶段", command=self._end_play_phase)
             end_phase_btn.grid(row=0, column=2, padx=(8, 0))
-            skip_btn = ttk.Button(controls, text="跳过 AI 等待", command=self._skip_ai_wait)
+            skip_btn = ttk.Button(controls, text="跳过AI延时", command=self._skip_ai_wait)
             skip_btn.grid(row=0, column=3, padx=(8, 0))
             self._confirm_btn = confirm_btn
             self._cancel_btn = cancel_btn
@@ -222,8 +237,12 @@ def run_gui() -> None:
             self._last_request_kind = req_kind
             human = snapshot.players[snapshot.human_index]
             enemy = snapshot.players[1 - snapshot.human_index]
-            self._self_var.set(self._format_player(human))
-            self._enemy_var.set(self._format_player(enemy))
+            self._self_var.set(self._format_player_base(human))
+            self._self_equip_var.set(self._format_player_equip(human))
+            self._self_horse_var.set(self._format_player_horse(human))
+            self._enemy_var.set(self._format_player_base(enemy))
+            self._enemy_equip_var.set(self._format_player_equip(enemy))
+            self._enemy_horse_var.set(self._format_player_horse(enemy))
             current_player = snapshot.current_player or "-"
             self._status_var.set(
                 "  ".join(
@@ -300,6 +319,32 @@ def run_gui() -> None:
                 parts.append("判定[" + "、".join(judgment_area) + "]")
             return "  ".join(parts)
 
+        def _format_player_base(self, p: object) -> str:
+            ps = p
+            name = getattr(ps, "name", "")
+            general = getattr(ps, "general", None)
+            hp = getattr(ps, "hp", 0)
+            max_hp = getattr(ps, "max_hp", 0)
+            hand_count = getattr(ps, "hand_count", 0)
+            parts = [name]
+            if general:
+                parts.append(f"({general})")
+            parts.append(f"HP {hp}/{max_hp}")
+            parts.append(f"手牌 {hand_count}")
+            return "  ".join(parts)
+
+        def _format_player_equip(self, p: object) -> str:
+            ps = p
+            weapon = getattr(ps, "weapon", None)
+            armor = getattr(ps, "armor", None)
+            return f"武器 {weapon or '-'}  防具 {armor or '-'}"
+
+        def _format_player_horse(self, p: object) -> str:
+            ps = p
+            plus_horse = getattr(ps, "plus_horse", None)
+            minus_horse = getattr(ps, "minus_horse", None)
+            return f"+1 {plus_horse or '-'}  -1 {minus_horse or '-'}"
+
         def _format_hand_card(self, card: CardView) -> str:
             suit_map = {"heart": "♥", "diamond": "♦", "club": "♣", "spade": "♠"}
             symbol = suit_map.get(card.suit, card.suit)
@@ -318,8 +363,10 @@ def run_gui() -> None:
             self._selected_index = None
             self._multi_selected.clear()
             for idx, card in enumerate(cards):
+                row = idx // HAND_MAX_COLS
+                col = idx % HAND_MAX_COLS
                 btn = ttk.Button(self._hand_frame, text=self._format_hand_card(card), command=lambda i=idx: self._select_card(i))
-                btn.grid(row=0, column=idx, padx=(0, 6), pady=2, sticky="w")
+                btn.grid(row=row, column=col, padx=(0, 6), pady=2, sticky="w")
                 self._hand_buttons.append(btn)
             self._refresh_hand_styles()
 
@@ -464,6 +511,12 @@ def run_gui() -> None:
                 self._end_phase_btn.configure(state=("normal" if can_play else "disabled"))
             for idx, btn in enumerate(self._active_skill_buttons):
                 btn.configure(state=("normal" if can_play else "disabled"))
+            if self._skip_btn is not None:
+                show_skip = snapshot.current_player is not None and snapshot.current_player != human_name
+                if show_skip:
+                    self._skip_btn.grid()
+                else:
+                    self._skip_btn.grid_remove()
             self._sync_modal_request(req)
 
         def _sync_modal_request(self, req: Any) -> None:
