@@ -496,6 +496,26 @@ def test_delayed_tricks_do_not_ask_nullify_on_play_but_ask_in_judgment() -> None
     assert any("无懈可击" in p and "闪电" in p for p in prompts)
 
 
+def test_judgment_log_contains_card_name() -> None:
+    messages: list[str] = []
+
+    def _out(msg: str) -> None:
+        messages.append(msg)
+
+    game = Game(
+        Player(name="A", is_ai=True, general="关羽"),
+        Player(name="B", is_ai=True, general="关羽"),
+        seed=11,
+        output_func=_out,
+    )
+    game.setup()
+    b = game.enemy
+    b.judgment_area.append(Card(CardName.INDULGENCE))
+    game.draw_pile = [Card(CardName.SHA, suit="spade", rank=7)]
+    game._resolve_judgment_area(b)
+    assert any("判定牌" in m and "杀" in m for m in messages)
+
+
 def test_build_deck_is_random_when_seed_none() -> None:
     deck1 = build_deck(seed=None)
     deck2 = build_deck(seed=None)
@@ -583,7 +603,7 @@ def test_guicai_replaces_judgment_card() -> None:
     res = game.run_judgment(b, reason_text="测试判定")
     assert isinstance(res, Card)
     assert res.suit == "heart"
-    assert any(c.suit == "spade" for c in game.discard_pile)
+    assert any(c.suit == "spade" for c in a.hand)
 
 
 def test_tiandu_can_take_judgment_card() -> None:

@@ -144,6 +144,11 @@ class Game:
     def discard(self, card: Card) -> None:
         self.discard_pile.append(card)
 
+    def _format_card_short(self, card: Card) -> str:
+        suit_map = {"heart": "♥", "diamond": "♦", "club": "♣", "spade": "♠"}
+        symbol = suit_map.get(card.suit, card.suit)
+        return f"{card.name} {symbol}{card.rank}"
+
     def lose_hp(self, victim: Player, amount: int = 1) -> None:
         victim.hp -= amount
         self._check_death(victim, self.other_player(victim))
@@ -182,13 +187,15 @@ class Game:
         judge = self.draw_judge_card()
         if judge is None:
             return None
+        self.output(f"[判定] {judge_owner.name} 判定牌：{self._format_card_short(judge)}")
         final = judge
         for owner, _, handler in self.passive_skill_registry.get("before_judge", []):
             if not owner.alive:
                 continue
             replaced = handler(self, owner, judge_owner=judge_owner, judge_card=final, reason_card=reason_card, reason_text=reason_text)
             if isinstance(replaced, Card):
-                self.discard(final)
+                owner.hand.append(final)
+                self.output(f"[结算] {owner.name} 获得判定牌：{self._format_card_short(final)}")
                 final = replaced
         taken = False
         for owner, _, handler in self.passive_skill_registry.get("after_judge", []):
@@ -258,7 +265,7 @@ class Game:
             if judge is None:
                 self.discard(delayed)
                 continue
-            self.output(f"{actor.name} 判定【{delayed.name}】：{judge.suit} {judge.rank}")
+            self.output(f"{actor.name} 判定【{delayed.name}】：{self._format_card_short(judge)}")
             if delayed.name == CardName.INDULGENCE and judge.suit != "heart":
                 actor.skip_play_phase = True
             elif delayed.name == CardName.SUPPLY_SHORTAGE and judge.suit != "club":
@@ -852,7 +859,7 @@ class Game:
             if attacker is None or not attacker.ignore_armor_on_sha:
                 judge = self._run_judgment(p, reason_card=p.armor, reason_text="八卦阵")
                 if judge is not None:
-                    self.output(f"[响应] {p.name} 的【八卦阵】判定：{judge.suit} {judge.rank}")
+                    self.output(f"[响应] {p.name} 的【八卦阵】判定：{self._format_card_short(judge)}")
                     if judge.is_red:
                         self.output(f"[响应] {p.name} 通过【八卦阵】视为打出【闪】。")
                         return True

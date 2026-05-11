@@ -182,7 +182,12 @@ def guicai_before_judge(
         replace = owner.hand.pop(0)
         game.output(f"[响应] {owner.name} 发动【鬼才】，替换判定牌。")
         return replace
-    ans = game.input(f"{owner.name} 是否发动【鬼才】替换判定牌？(y/n): ").strip().lower()
+    prompt_card = ""
+    if hasattr(judge_card, "name") and hasattr(judge_card, "suit") and hasattr(judge_card, "rank"):
+        suit_map = {"heart": "♥", "diamond": "♦", "club": "♣", "spade": "♠"}
+        symbol = suit_map.get(getattr(judge_card, "suit"), getattr(judge_card, "suit"))
+        prompt_card = f"（当前判定：{getattr(judge_card, 'name')} {symbol}{getattr(judge_card, 'rank')}）"
+    ans = game.input(f"{owner.name} 是否发动【鬼才】替换判定牌{prompt_card}？(y/n): ").strip().lower()
     if ans != "y":
         return None
     listing = " ".join(f"[{i}] {c.name} {c.suit}{c.rank}" for i, c in enumerate(owner.hand))
@@ -225,8 +230,14 @@ def yiji_after_damage(
             ans = game.input(f"{owner.name} 是否发动【遗计】？(y/n): ").strip().lower()
             if ans != "y":
                 continue
+        before = len(owner.hand)
         game.draw_cards(owner, 2)
-        game.output(f"[结算] {owner.name} 触发【遗计】，摸2张牌。")
+        drawn = owner.hand[before:]
+        suit_map = {"heart": "♥", "diamond": "♦", "club": "♣", "spade": "♠"}
+        shown = " ".join(
+            f"[{i}] {c.name} {suit_map.get(c.suit, c.suit)}{c.rank}" for i, c in enumerate(drawn)
+        )
+        game.output(f"[结算] {owner.name} 触发【遗计】，摸2张牌：{shown}")
         targets = [p for p in game.players if p.alive and p is not owner]
         if not targets or owner.is_ai:
             continue

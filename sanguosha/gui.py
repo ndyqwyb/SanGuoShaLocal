@@ -22,6 +22,8 @@ def run_gui() -> None:
             self.root = root
             self.config = config or GuiConfig()
             self.engine = LocalVisualEngine()
+            self.root.minsize(980, 720)
+            self.root.geometry("980x720")
             self._style = ttk.Style()
             self._style.configure("Selected.TButton", font=("TkDefaultFont", 10, "bold"))
             self._frame = ttk.Frame(root, padding=16)
@@ -37,6 +39,7 @@ def run_gui() -> None:
             self._status_var = StringVar(value="")
             self._hint_var = StringVar(value="")
             self._general_var = StringVar(value=GENERAL_POOL[0].name if GENERAL_POOL else "")
+            self._general_desc_var = StringVar(value="")
             self._log_widget: Any | None = None
             self._hand_cards: tuple[CardView, ...] = ()
             self._hand_buttons: list[Any] = []
@@ -77,15 +80,32 @@ def run_gui() -> None:
         def _build_start_page(self, parent: Any) -> Any:
             page = ttk.Frame(parent)
             title = ttk.Label(page, text="本地 1v1 三国杀", font=("TkDefaultFont", 16, "bold"))
-            title.grid(row=0, column=0, pady=(0, 12))
+            title.grid(row=0, column=0, columnspan=2, pady=(0, 12))
             ttk.Label(page, text="选择我方武将").grid(row=1, column=0, sticky="w", pady=(0, 6))
             general_names = [g.name for g in GENERAL_POOL]
             general_combo = ttk.Combobox(page, textvariable=self._general_var, values=general_names, state="readonly")
             general_combo.grid(row=2, column=0, sticky="ew", pady=(0, 12))
-            page.grid_columnconfigure(0, weight=1)
+            page.grid_columnconfigure(0, weight=0)
+            page.grid_columnconfigure(1, weight=1)
+            desc = ttk.Label(page, textvariable=self._general_desc_var, justify="left", wraplength=520)
+            desc.grid(row=1, column=1, rowspan=3, sticky="nw", padx=(20, 0))
             btn = ttk.Button(page, text="开始对局", command=self._start_game)
             btn.grid(row=3, column=0)
+            self._refresh_general_desc()
+            general_combo.bind("<<ComboboxSelected>>", lambda _evt: self._refresh_general_desc())
             return page
+
+        def _refresh_general_desc(self) -> None:
+            name = self._general_var.get().strip()
+            for g in GENERAL_POOL:
+                if g.name == name:
+                    lines = [f"{g.name}（体力上限{g.max_hp}）"]
+                    for s in g.skills:
+                        kind = "主动" if s.kind == "active" else "被动"
+                        lines.append(f"{kind}·{s.name}：{s.description}")
+                    self._general_desc_var.set("\n".join(lines))
+                    return
+            self._general_desc_var.set("")
 
         def _build_battle_page(self, parent: Any) -> Any:
             from tkinter import Frame
@@ -111,6 +131,7 @@ def run_gui() -> None:
             enemy_box.grid_columnconfigure(0, weight=1)
             ttk.Label(enemy_box, text="对方").grid(row=0, column=0, sticky="e")
             ttk.Label(enemy_box, textvariable=self._enemy_var).grid(row=1, column=0, sticky="e")
+            ttk.Button(enemy_box, text="查看技能", command=self._show_enemy_skills).grid(row=2, column=0, sticky="e", pady=(6, 0))
             self._enemy_box = enemy_box
 
             ttk.Label(page, textvariable=self._status_var).grid(row=1, column=0, sticky="w", pady=(10, 4))
@@ -195,6 +216,8 @@ def run_gui() -> None:
             req_kind = snapshot.pending_request.kind if snapshot.pending_request is not None else None
             if req_kind != self._last_request_kind:
                 self._cancel_selection()
+                if snapshot.pending_request is not None:
+                    self._set_hint_for_request(snapshot.pending_request)
             self._last_request_kind = req_kind
             human = snapshot.players[snapshot.human_index]
             enemy = snapshot.players[1 - snapshot.human_index]
@@ -226,6 +249,26 @@ def run_gui() -> None:
                 self.show("end")
 
             self.root.after(self.config.refresh_ms, self._tick)
+
+        def _set_hint_for_request(self, req: Any) -> None:
+            if req.kind == "discard_select":
+                need = self._parse_needed_discard(req.prompt)
+                self._hint_var.set(f"弃牌阶段：请选择 {need} 张牌弃置。")
+                return
+            if req.kind == "skill_card_select":
+                skill = self._parse_skill_name(req.prompt)
+                prefix = f"{skill}：" if skill else "技能选牌："
+                self._hint_var.set(f"{prefix}请选择一张手牌。")
+                return
+            if req.kind == "play":
+                self._hint_var.set("")
+                return
+
+        def _parse_skill_name(self, prompt: str) -> str | None:
+            if "技能选牌-" in prompt:
+                seg = prompt.split("技能选牌-", 1)[1]
+                return seg.split("：", 1)[0].split(":", 1)[0].strip() or None
+            return None
 
         def _format_player(self, p: object) -> str:
             ps = p
@@ -300,12 +343,14 @@ def run_gui() -> None:
                 self._refresh_hand_styles()
                 return
             if req.kind == "skill_card_select":
+                skill = self._parse_skill_name(req.prompt)
+                prefix = f"{skill}：" if skill else "技能选牌："
                 if self._selected_index == idx:
                     self._selected_index = None
-                    self._hint_var.set("技能选牌：请先选择要弃置的手牌。")
+                    self._hint_var.set(f"{prefix}请选择一张手牌。")
                 else:
                     self._selected_index = idx
-                    self._hint_var.set("技能选牌：已选中，点击确认提交。")
+                    self._hint_var.set(f"{prefix}已选中，点击确认提交。")
                 self._refresh_hand_styles()
                 return
             if req.kind != "play" or not self._is_waiting_for_play():
@@ -332,7 +377,7 @@ def run_gui() -> None:
             if req.kind == "discard_select":
                 need = self._parse_needed_discard(req.prompt)
                 if len(self._multi_selected) != need:
-                    self._hint_var.set(f"请恰好选择 {need} 张要弃置的牌。")
+                    self._hint_var.set(f"弃牌阶段：请恰好选择 {need} 张要弃置的牌。")
                     return
                 text = " ".join(str(i) for i in sorted(self._multi_selected))
                 self.engine.dispatch(UIAction(type=ActionType.SUBMIT_TEXT, text=text))
@@ -341,8 +386,10 @@ def run_gui() -> None:
                 self._refresh_hand_styles()
                 return
             if req.kind == "skill_card_select":
+                skill = self._parse_skill_name(req.prompt)
+                prefix = f"{skill}：" if skill else "技能选牌："
                 if self._selected_index is None:
-                    self._hint_var.set("技能选牌：请先选择一张手牌。")
+                    self._hint_var.set(f"{prefix}请选择一张手牌。")
                     return
                 self.engine.dispatch(UIAction(type=ActionType.SUBMIT_TEXT, text=str(self._selected_index)))
                 self._selected_index = None
@@ -391,8 +438,8 @@ def run_gui() -> None:
         def _sync_interactions(self, snapshot: Any, human_name: str) -> None:
             req = snapshot.pending_request
             can_play = req is not None and req.kind == "play" and snapshot.current_player == human_name
-            can_discard = req is not None and req.kind == "discard_select" and snapshot.current_player == human_name
-            can_skill_card = req is not None and req.kind == "skill_card_select" and snapshot.current_player == human_name
+            can_discard = req is not None and req.kind == "discard_select"
+            can_skill_card = req is not None and req.kind == "skill_card_select"
             for btn in self._hand_buttons:
                 btn.configure(state=("normal" if (can_play or can_discard or can_skill_card) else "disabled"))
             if self._confirm_btn is not None:
@@ -472,6 +519,36 @@ def run_gui() -> None:
             self._active_modal = modal
             self._active_modal_kind = kind
             self._active_modal_prompt = prompt
+
+        def _show_enemy_skills(self) -> None:
+            snapshot = self.engine.get_snapshot()
+            enemy = snapshot.players[1 - snapshot.human_index]
+            if enemy.general is None:
+                return
+            for g in GENERAL_POOL:
+                if g.name == enemy.general:
+                    lines = [f"{g.name}（体力上限{g.max_hp}）"]
+                    for s in g.skills:
+                        kind = "主动" if s.kind == "active" else "被动"
+                        lines.append(f"{kind}·{s.name}：{s.description}")
+                    self._open_info_modal("对方技能", "\n".join(lines))
+                    return
+
+        def _open_info_modal(self, title: str, text: str) -> None:
+            from tkinter import Toplevel
+
+            modal = Toplevel(self.root)
+            modal.title(title)
+            modal.transient(self.root)
+            modal.resizable(False, False)
+            body = ttk.Frame(modal, padding=12)
+            body.grid(row=0, column=0, sticky="nsew")
+            ttk.Label(body, text=text, justify="left", wraplength=520).grid(row=0, column=0, sticky="w")
+            ttk.Button(body, text="关闭", command=modal.destroy).grid(row=1, column=0, sticky="e", pady=(10, 0))
+            modal.update_idletasks()
+            self._center_modal(modal)
+            modal.grab_set()
+            modal.focus_force()
 
         def _center_modal(self, modal: Any) -> None:
             self.root.update_idletasks()
