@@ -14,6 +14,7 @@ class GuiConfig:
 
 
 HAND_MAX_COLS = 8
+HAND_SLOT_WIDTH = 14
 
 
 def run_gui() -> None:
@@ -41,13 +42,16 @@ def run_gui() -> None:
             self._self_var = StringVar(value="")
             self._self_equip_var = StringVar(value="")
             self._self_horse_var = StringVar(value="")
+            self._self_judge_var = StringVar(value="")
             self._enemy_var = StringVar(value="")
             self._enemy_equip_var = StringVar(value="")
             self._enemy_horse_var = StringVar(value="")
+            self._enemy_judge_var = StringVar(value="")
             self._status_var = StringVar(value="")
             self._hint_var = StringVar(value="")
             self._general_var = StringVar(value=GENERAL_POOL[0].name if GENERAL_POOL else "")
             self._general_desc_var = StringVar(value="")
+            self._battle_geometry_set = False
             self._log_widget: Any | None = None
             self._hand_cards: tuple[CardView, ...] = ()
             self._hand_buttons: list[Any] = []
@@ -84,6 +88,16 @@ def run_gui() -> None:
             page = self.pages[name]
             page.grid(row=0, column=0, sticky="nsew")
             self._current_page = name
+            if name == "battle" and not self._battle_geometry_set:
+                self._fit_battle_geometry()
+                self._battle_geometry_set = True
+
+        def _fit_battle_geometry(self) -> None:
+            self.root.update_idletasks()
+            reqw = self._frame.winfo_reqwidth()
+            reqh = max(620, self._frame.winfo_reqheight())
+            self.root.geometry(f"{reqw}x{reqh}")
+            self.root.minsize(reqw, 620)
 
         def _build_start_page(self, parent: Any) -> Any:
             page = ttk.Frame(parent)
@@ -137,6 +151,7 @@ def run_gui() -> None:
             ttk.Label(self_box, textvariable=self._self_var).grid(row=1, column=0, columnspan=2, sticky="w")
             ttk.Label(self_box, textvariable=self._self_equip_var).grid(row=2, column=0, columnspan=2, sticky="w", pady=(4, 0))
             ttk.Label(self_box, textvariable=self._self_horse_var).grid(row=3, column=0, columnspan=2, sticky="w")
+            ttk.Label(self_box, textvariable=self._self_judge_var).grid(row=4, column=0, columnspan=2, sticky="w")
             self._self_box = self_box
 
             enemy_box = Frame(info, bd=2, relief="groove", padx=8, pady=6)
@@ -148,6 +163,7 @@ def run_gui() -> None:
             ttk.Label(enemy_box, textvariable=self._enemy_var).grid(row=1, column=0, columnspan=2, sticky="w")
             ttk.Label(enemy_box, textvariable=self._enemy_equip_var).grid(row=2, column=0, columnspan=2, sticky="w", pady=(4, 0))
             ttk.Label(enemy_box, textvariable=self._enemy_horse_var).grid(row=3, column=0, columnspan=2, sticky="w")
+            ttk.Label(enemy_box, textvariable=self._enemy_judge_var).grid(row=4, column=0, columnspan=2, sticky="w")
             self._enemy_box = enemy_box
 
             ttk.Label(page, textvariable=self._status_var).grid(row=1, column=0, sticky="w", pady=(10, 4))
@@ -240,9 +256,11 @@ def run_gui() -> None:
             self._self_var.set(self._format_player_base(human))
             self._self_equip_var.set(self._format_player_equip(human))
             self._self_horse_var.set(self._format_player_horse(human))
+            self._self_judge_var.set(self._format_player_judge(human))
             self._enemy_var.set(self._format_player_base(enemy))
             self._enemy_equip_var.set(self._format_player_equip(enemy))
             self._enemy_horse_var.set(self._format_player_horse(enemy))
+            self._enemy_judge_var.set(self._format_player_judge(enemy))
             current_player = snapshot.current_player or "-"
             self._status_var.set(
                 "  ".join(
@@ -345,6 +363,13 @@ def run_gui() -> None:
             minus_horse = getattr(ps, "minus_horse", None)
             return f"+1 {plus_horse or '-'}  -1 {minus_horse or '-'}"
 
+        def _format_player_judge(self, p: object) -> str:
+            ps = p
+            judgment_area = getattr(ps, "judgment_area", ()) or ()
+            if not judgment_area:
+                return "判定区：-"
+            return "判定区：" + "、".join(judgment_area)
+
         def _format_hand_card(self, card: CardView) -> str:
             suit_map = {"heart": "♥", "diamond": "♦", "club": "♣", "spade": "♠"}
             symbol = suit_map.get(card.suit, card.suit)
@@ -353,7 +378,8 @@ def run_gui() -> None:
         def _sync_hand(self, cards: tuple[CardView, ...]) -> None:
             if self._hand_frame is None:
                 return
-            if cards == self._hand_cards and len(self._hand_buttons) == len(cards):
+            need_count = max(len(cards), HAND_MAX_COLS)
+            if cards == self._hand_cards and len(self._hand_buttons) == need_count:
                 self._refresh_hand_styles()
                 return
             for btn in self._hand_buttons:
@@ -362,10 +388,19 @@ def run_gui() -> None:
             self._hand_cards = cards
             self._selected_index = None
             self._multi_selected.clear()
-            for idx, card in enumerate(cards):
+            for idx in range(need_count):
                 row = idx // HAND_MAX_COLS
                 col = idx % HAND_MAX_COLS
-                btn = ttk.Button(self._hand_frame, text=self._format_hand_card(card), command=lambda i=idx: self._select_card(i))
+                if idx < len(cards):
+                    card = cards[idx]
+                    btn = ttk.Button(
+                        self._hand_frame,
+                        text=self._format_hand_card(card),
+                        width=HAND_SLOT_WIDTH,
+                        command=lambda i=idx: self._select_card(i),
+                    )
+                else:
+                    btn = ttk.Button(self._hand_frame, text="", width=HAND_SLOT_WIDTH, state="disabled", command=lambda: None)
                 btn.grid(row=row, column=col, padx=(0, 6), pady=2, sticky="w")
                 self._hand_buttons.append(btn)
             self._refresh_hand_styles()

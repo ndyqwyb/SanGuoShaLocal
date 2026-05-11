@@ -516,6 +516,24 @@ def test_delayed_tricks_do_not_ask_nullify_on_play_but_ask_in_judgment() -> None
     assert any("无懈可击" in p and "闪电" in p for p in prompts)
 
 
+def test_lightning_nullify_moves_to_next_judgment_area() -> None:
+    answers = iter(["y"])
+    game = Game(
+        Player(name="A", is_ai=False),
+        Player(name="B", is_ai=False),
+        seed=31,
+        input_func=lambda _: next(answers),
+        output_func=lambda _: None,
+    )
+    a, b = game.player, game.enemy
+    a.hand = [Card(CardName.NULLIFY)]
+    b.hand = []
+    b.judgment_area.append(Card(CardName.LIGHTNING))
+    game._resolve_judgment_area(b)
+    assert len(b.judgment_area) == 0
+    assert any(c.name == CardName.LIGHTNING for c in a.judgment_area)
+
+
 def test_judgment_log_contains_card_name() -> None:
     messages: list[str] = []
 

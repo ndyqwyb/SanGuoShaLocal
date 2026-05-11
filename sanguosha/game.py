@@ -297,7 +297,15 @@ class Game:
         for delayed in pending:
             if self._is_delayed_trick_countered(actor, delayed):
                 self.output(f"[结算] {actor.name} 判定区的【{delayed.name}】被无懈可击抵消。")
-                self.discard(delayed)
+                if delayed.name == CardName.LIGHTNING:
+                    next_player = self.other_player(actor)
+                    if not self._has_delayed(next_player, CardName.LIGHTNING):
+                        next_player.judgment_area.append(delayed)
+                        self.output(f"【闪电】被无懈可击抵消，转移给 {next_player.name}。")
+                    else:
+                        self.discard(delayed)
+                else:
+                    self.discard(delayed)
                 continue
             judge = self._run_judgment(actor, reason_card=delayed, reason_text=delayed.name)
             if judge is None:
