@@ -424,7 +424,7 @@ def test_snatch_ex_nihilo_and_borrowed_sword() -> None:
 
 
 def test_global_tricks_and_wuxie() -> None:
-    answers = iter(["y"])
+    answers = iter(["n", "y"])
     game = Game(
         Player(name="A", is_ai=False),
         Player(name="B", is_ai=False),
@@ -438,9 +438,29 @@ def test_global_tricks_and_wuxie() -> None:
     a.hand = [Card(CardName.PEACH_GARDEN), Card(CardName.BARBARIAN_INVASION)]
     b.hand = [Card(CardName.NULLIFY)]
     game.play_card(a, b, 0)
-    assert a.hp == 2 and b.hp == 2
+    assert a.hp == 3 and b.hp == 2
     game.play_card(a, b, 0)
     assert b.hp == 1
+
+
+def test_harvest_nullify_skips_only_one_picker() -> None:
+    answers = iter(["n", "0", "y"])
+    game = Game(
+        Player(name="A", is_ai=False),
+        Player(name="B", is_ai=False),
+        seed=21,
+        input_func=lambda _: next(answers),
+        output_func=lambda _: None,
+    )
+    a, b = game.player, game.enemy
+    a.hand = [Card(CardName.HARVEST)]
+    b.hand = [Card(CardName.NULLIFY)]
+    game.draw_pile = [Card(CardName.SHA, suit="spade", rank=7), Card(CardName.TAO, suit="heart", rank=9)]
+    game.play_card(a, b, 0)
+    assert len(a.hand) == 1
+    assert len(b.hand) == 0
+    assert any(c.name == CardName.TAO for c in a.hand) or any(c.name == CardName.SHA for c in a.hand)
+    assert len(game.discard_pile) >= 3
 
 
 def test_delayed_tricks_indulgence_supply_and_lightning() -> None:

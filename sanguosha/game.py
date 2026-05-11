@@ -667,9 +667,17 @@ class Game:
 
     def _effect_peach_garden(self, actor: Player, target: Player, card: Card, __: CardDefinition) -> ActionResult:
         self.discard(card)
-        if self._is_trick_countered(actor, target, card):
-            return ActionResult(True, f"{actor.name} 的【{card.name}】被无懈可击抵消。")
-        for p in self.players:
+        for p in self._iter_ccw_alive(actor):
+            effective = self._resolve_nullify_chain(
+                starter=actor,
+                trick_user=actor,
+                trick_name=card.name,
+                target=p,
+                effective=True,
+            )
+            if not effective:
+                self.output(f"[结算] {p.name} 受到的【{card.name}】效果被无懈可击抵消。")
+                continue
             if p.alive:
                 p.heal(1)
         return ActionResult(True, f"{actor.name} 使用【桃园结义】。")
@@ -677,8 +685,6 @@ class Game:
     def _effect_harvest(self, actor: Player, target: Player, card: Card, __: CardDefinition) -> ActionResult:
         self.discard(card)
         self.output(f"[声明] {actor.name} 使用【{card.name}】。")
-        if self._is_trick_countered(actor, target, card):
-            return ActionResult(True, f"[结算] {actor.name} 的【{card.name}】被无懈可击抵消。")
         pool: list[Card] = []
         for _ in range(sum(1 for p in self.players if p.alive)):
             drawn = self.draw_judge_card()
@@ -692,8 +698,15 @@ class Game:
         for picker in pickers:
             if not pool:
                 break
-            if self._is_harvest_pick_skipped(actor, picker):
-                self.output(f"[结算] {picker.name} 的【五谷丰登】选牌被无懈可击抵消，跳过。")
+            effective = self._resolve_nullify_chain(
+                starter=actor,
+                trick_user=actor,
+                trick_name=card.name,
+                target=picker,
+                effective=True,
+            )
+            if not effective:
+                self.output(f"[结算] {picker.name} 受到的【{card.name}】效果被无懈可击抵消，跳过选牌。")
                 continue
             if picker is last_picker and len(pool) == 1:
                 card_got = pool.pop(0)
@@ -707,41 +720,6 @@ class Game:
         for remain in pool:
             self.discard(remain)
         return ActionResult(True, "")
-
-    def _is_harvest_pick_skipped(self, actor: Player, picker: Player) -> bool:
-        effective = True
-        while True:
-            played = False
-            for p in self._iter_ccw_alive(actor):
-                if not p.has_card(CardName.NULLIFY):
-                    continue
-                if effective:
-                    prompt = (
-                        f"【五谷丰登】轮到 {picker.name} 选牌，是否使用【无懈可击】使其跳过本次选牌？(y/n): "
-                    )
-                else:
-                    prompt = (
-                        f"【五谷丰登】{picker.name} 已被跳过，是否使用【无懈可击】使其恢复选牌？(y/n): "
-                    )
-                if p.is_ai:
-                    want_effective = p.is_ally_of(picker)
-                    should_play = (effective and not want_effective) or ((not effective) and want_effective)
-                    if not should_play:
-                        continue
-                    card = p.remove_one(CardName.NULLIFY)
-                    if card is None:
-                        continue
-                    self.discard(card)
-                    self.output(f"[响应] {p.name} 打出【无懈可击】。")
-                else:
-                    if not self._ask_for_specific_card(p, CardName.NULLIFY, prompt):
-                        continue
-                effective = not effective
-                played = True
-                break
-            if not played:
-                break
-        return not effective
 
     def _choose_harvest_index(self, actor: Player, pool: list[Card]) -> int:
         if len(pool) == 1:
